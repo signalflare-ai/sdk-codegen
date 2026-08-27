@@ -32,6 +32,7 @@ The compiler now provides:
 - deterministic multi-profile selection with preview exclusion;
 - Effect v4-native config, contract, validation, generation, filesystem, and CLI workflows;
 - schema-backed typed failures and a Bun Effect runtime/layer boundary;
+- a pinned Effect HttpApi adapter for compiler-ready product OpenAPI generation;
 - `signalflare-sdk validate` and `signalflare-sdk generate`;
 - Oagen generation, ownership manifests, provenance, and safe pruning;
 - a generated TypeScript Promise/fetch client with structured errors;

@@ -52,6 +52,22 @@ pruning, auth-plan compilation, and IR validation—remain ordinary synchronous
 functions. Foreign Promise/throwing APIs from Redocly and Oagen are isolated in
 `Effect.tryPromise` adapter boundaries.
 
+## Effect-owned contract sources
+
+The `@signalflare-ai/sdk-codegen/effect-httpapi` subpath isolates Effect's
+unstable HttpApi OpenAPI API behind a pinned product-side adapter. Root
+annotations inject the 3.1.2 baseline,
+product metadata, servers, and global AuthKit bearer policy. Operation annotations
+inject stable operation IDs and required `x-signalflare-*` metadata, including
+explicit anonymous-security overrides.
+
+`generateSignalflareOpenApi` reuses one immutable reference-policy options object
+so Effect's OpenAPI cache remains effective. The policy promotes schemas with
+identifiers into components and leaves anonymous schemas inline. Product APIs
+should therefore annotate reusable nested request, response, and error schemas
+with stable identifiers before generation; this is the intended Atlas migration
+path for unresolved nested models.
+
 ## Authentication boundary
 
 The compiler preserves named OpenAPI security schemes and each operation's

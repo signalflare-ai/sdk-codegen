@@ -18,6 +18,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./effect-httpapi": {
+      "types": "./dist/effect-httpapi/openapi.d.ts",
+      "import": "./dist/effect-httpapi/openapi.js"
     }
   },
   "scripts": {

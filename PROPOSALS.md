@@ -46,10 +46,7 @@ Status key: `[ ]` open · `[x]` done · `[-]` rejected (note why)
 
 ## C. Simplification
 
-- [ ] **C1. Split `src/contract/validate.ts` (816 lines, one procedural file).**
-  - Reduce `addDiagnostic(context, {severity, code, message, pointer}, operation)` boilerplate (~30 repeats) with a curried per-validator helper.
-  - Split into `validate/top-level.ts`, `validate/parameters.ts`, `validate/responses.ts`, `validate/security.ts`.
-  - Add a doc comment explaining why validation is hand-rolled instead of Redocly/Spectral rules (assumed: product-specific policy + pointers into `x-signalflare-*` extensions) — confirm and write down the actual reason.
+- [x] **C1. Split contract validation by policy domain.** `src/contract/validate.ts` is now a small orchestrator over `validate/context.ts`, `top-level.ts`, `operation.ts`, `parameters.ts`, `request-body.ts`, `responses.ts`, `schema.ts`, and `security.ts`. Shared context owns diagnostic enrichment and reference resolution. The public validator documents why Signalflare metadata/profile/emitter policy and stable product-CI pointers remain compiler-owned after Redocly parsing instead of generic Spectral rules.
 
 - [-] **C2. `makeExactOptionalCompatible` applied across emitter phases.** Rejected after checking Oagen's `generateAllFiles`: each emitter phase returns a disjoint file list and each generated TypeScript file is transformed once. Oagen exposes no pre-write final-file hook; applying a final pass after `generate()` would be too late because files are already integrated on disk. A future cleanup may wrap the phase methods for readability, but there is no repeated file processing to optimize.
 
@@ -75,13 +72,13 @@ Status key: `[ ]` open · `[x]` done · `[-]` rejected (note why)
 
 - [x] **E3. Add an Effect JSON Schema compatibility preflight.** `validateEffectJsonSchemaCompatibility` normalizes components once with `JsonSchema.fromSchemaOpenApi3_1`, imports each root with `SchemaRepresentation.fromJsonSchemaDocument`, and emits component-pointer warnings for unsupported semantics. It is advisory because Effect and Oagen support different subsets, and it never rewrites the canonical document.
 
-- [ ] **E4. Use Effect reference allocation in Effect-owned product APIs.** `SchemaRepresentation` accepts a deterministic `referencePolicy`, and `unstable/httpapi/OpenApi.fromApi` deduplicates schemas and emits components, errors, security, and docs. This is especially promising for Atlas, whose canonical schemas already originate in Effect. Give reusable nested schemas identifiers or a reference policy so Oagen receives named freshness/lineage/run/result components instead of unresolved inline models.
+- [ ] **E4. Use Effect reference allocation in Effect-owned product APIs.** The shared adapter now exports one immutable `SIGNALFLARE_OPENAPI_OPTIONS` reference policy and a tested generator; identified nested schemas become components and anonymous schemas remain inline. Remaining cross-repo work: annotate Atlas freshness/lineage/run/result schemas with stable identifiers, generate through the adapter, and verify its nine unresolved Oagen references disappear.
 
-- [ ] **E5. Provide a Signalflare HttpApi annotation adapter.** Effect OpenAPI supports `Identifier`, `Servers`, `Override`, and `Transform`. A small product-side helper could inject `x-signalflare-product`, operation SDK metadata, operation IDs, global bearer security, and the 3.1.2 version override at the source. Keep this helper outside the language emitters.
+- [x] **E5. Provide a Signalflare HttpApi annotation adapter.** `src/effect-httpapi/openapi.ts` now provides root and operation annotation helpers for product metadata, SDK metadata, operation IDs, servers, 3.1.2, global AuthKit bearer auth, and explicit anonymous operations. It remains outside all language emitters.
 
 - [-] **E6. Replace Redocly with Effect OpenAPI.** Rejected: Effect's `OpenApi.fromApi` generates documents from Effect `HttpApi`; it does not parse/bundle arbitrary product OpenAPI files. `JsonSchema` handles Schema Objects, not full paths, operations, security, or external-document bundling. Redocly remains the ingestion/bundling layer.
 
-- [ ] **E7. Treat unstable APIs as pinned adapters.** `effect/unstable/httpapi` and the project are on exact `4.0.0-rc.112`. Isolate HttpApi/OpenAPI integration behind a small adapter and add snapshot tests before using it in product contract generation. `JsonPointer`, `JsonSchema`, `Schema`, and `SchemaRepresentation` are stable core exports.
+- [x] **E7. Treat unstable APIs as pinned adapters.** All `effect/unstable/httpapi` usage is isolated in `src/effect-httpapi/openapi.ts` and one adapter test. The test snapshots compiler-required metadata, AuthKit security, 3.1.2 output, named nested components, and a zero-diagnostic compiler validation pass against the exact Effect pin.
 
 ## Suggested batching
 
