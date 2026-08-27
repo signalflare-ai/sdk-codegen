@@ -1,10 +1,10 @@
+import { JsonPointer, Predicate } from "effect";
+
 export function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+  return Predicate.isObject(value);
 }
 
-export function escapeJsonPointer(value: string): string {
-  return value.replaceAll("~", "~0").replaceAll("/", "~1");
-}
+export const escapeJsonPointer = JsonPointer.escapeToken;
 
 export function getAtJsonPointer(document: unknown, pointer: string): unknown {
   if (pointer === "#" || pointer === "") return document;
@@ -12,7 +12,7 @@ export function getAtJsonPointer(document: unknown, pointer: string): unknown {
 
   let current = document;
   for (const rawPart of pointer.slice(2).split("/")) {
-    const part = rawPart.replaceAll("~1", "/").replaceAll("~0", "~");
+    const part = JsonPointer.unescapeToken(rawPart);
     if (Array.isArray(current)) {
       const index = Number(part);
       if (!Number.isInteger(index)) return undefined;

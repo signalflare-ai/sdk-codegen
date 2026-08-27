@@ -9,7 +9,7 @@ import {
   type OperationHint,
 } from "@workos/oagen";
 import { goEmitter, pythonEmitter, rustEmitter } from "@workos/oagen-emitters";
-import { Effect, FileSystem } from "effect";
+import { Effect, FileSystem, Schema } from "effect";
 import { loadSdkConfig } from "../config/load.js";
 import type { BaseTargetConfig, SdkProfile, SignalflareSdkConfig } from "../config/schema.js";
 import { compileAuthPlan } from "../contract/auth.js";
@@ -31,6 +31,8 @@ export const COMPILER_VERSION = "0.0.0";
 export const OAGEN_EMITTERS_VERSION = "0.24.4";
 export const TARGET_NAMES = ["typescript", "python", "go", "rust"] as const;
 export type TargetName = (typeof TARGET_NAMES)[number];
+
+const OagenManifestFromJson = Schema.fromJsonString(Schema.JsonObject);
 
 export interface GenerateSdkOptions {
   configPath?: string;
@@ -202,10 +204,9 @@ const enrichOagenManifest = Effect.fn("SdkGenerator.enrichManifest")(function* (
   const content = yield* fs
     .readFileString(path)
     .pipe(Effect.mapError((cause) => generationError("Read Oagen manifest", cause)));
-  const parsed = yield* Effect.try({
-    try: () => JSON.parse(content) as Record<string, unknown>,
-    catch: (cause) => generationError("Parse Oagen manifest", cause),
-  });
+  const parsed = yield* Schema.decodeUnknownEffect(OagenManifestFromJson)(content).pipe(
+    Effect.mapError((cause) => generationError("Parse Oagen manifest", cause)),
+  );
   const enriched = {
     ...parsed,
     sdkName: details.sdkName,

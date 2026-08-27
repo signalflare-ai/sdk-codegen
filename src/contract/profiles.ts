@@ -1,6 +1,6 @@
 import type { SdkProfile, SignalflareSdkConfig } from "../config/schema.js";
 import { audiencesForProfile, profileIsEnabled } from "../config/validate.js";
-import { escapeJsonPointer, isRecord } from "../shared/object.js";
+import { escapeJsonPointer, getAtJsonPointer, isRecord } from "../shared/object.js";
 import type { Diagnostic, ValidationReport } from "./diagnostics.js";
 import { createValidationReport } from "./diagnostics.js";
 import { parseOperationSdkMetadata } from "./extensions.js";
@@ -67,15 +67,7 @@ function pruneUnreferencedSchemas(document: OpenApiDocument): void {
     const schemaName = componentReferenceName(reference, "schemas");
     if (schemaName !== undefined) reachable.add(schemaName);
 
-    const resolved = reference
-      .slice(2)
-      .split("/")
-      .map((segment) => segment.replaceAll("~1", "/").replaceAll("~0", "~"))
-      .reduce<unknown>(
-        (current, segment) => (isRecord(current) ? current[segment] : undefined),
-        document,
-      );
-    walk(resolved);
+    walk(getAtJsonPointer(document, reference));
   }
 
   for (const name of Object.keys(schemas)) {

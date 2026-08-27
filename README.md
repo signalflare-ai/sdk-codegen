@@ -43,8 +43,8 @@ Python, Go, and Rust spec-derived cores can be emitted but still require their
 product-owned transport/error runtimes. TypeScript Effect generation remains the
 next client-surface milestone. See [`docs/architecture.md`](docs/architecture.md),
 [`docs/sdk-codegen-spec.md`](docs/sdk-codegen-spec.md),
-[`docs/real-contract-pilots.md`](docs/real-contract-pilots.md), and
-[`UPSTREAM.md`](UPSTREAM.md).
+[`docs/real-contract-pilots.md`](docs/real-contract-pilots.md),
+[`PROPOSALS.md`](PROPOSALS.md), and [`UPSTREAM.md`](UPSTREAM.md).
 
 ## Development
 
