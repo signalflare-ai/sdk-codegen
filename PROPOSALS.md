@@ -9,41 +9,38 @@ Status key: `[ ]` open · `[x]` done · `[-]` rejected (note why)
 
 ## A. Bugs / fragile spots
 
-- [ ] **A1. Hardcoded version strings scattered.**
+- [x] **A1. Hardcoded version strings scattered.**
   - `COMPILER_VERSION = "0.0.0"` in `src/generator/generate.ts`
   - `0.0.0` hardcoded again inside the generated user-agent template in `src/emitters/typescript/runtime.ts`
   - `"3.1.2"` duplicated in `src/config/schema.ts`, `src/contract/validate.ts`, `src/generator/generate.ts` (manifest)
-  - Fix: read version from `package.json` (already imported in `test/upstream.test.ts`) or a generated `version.ts`; export one `OPENAPI_BASELINE` constant. Retire the drift test once a single source of truth exists.
+  - Landed: compiler/generated-SDK/upstream-emitter versions live in `src/version.ts`; `OPENAPI_BASELINE` lives in `src/config/schema.ts`. A provenance test enforces that `COMPILER_VERSION` and the emitter version match package metadata.
 
-- [ ] **A2. `exposeSignalflareClient` string-replaces upstream output with no assertion.**
+- [x] **A2. `exposeSignalflareClient` string-replaces upstream output with no assertion.**
       `src/emitters/typescript/index.ts` — if `nodeEmitter` renames `export { WorkOS }` or the options-interface path, `.replace()` silently no-ops and generated clients export `WorkOS`.
-      Fix: assert the replacement happened (`includes()` before/after) and throw a diagnostic naming the pinned upstream version.
+      Landed: each rewrite now requires exactly one upstream match and throws an error naming the pinned emitter version; a missing `src/index.ts` also fails generation.
 
-- [ ] **A3. `console.log` monkey-patch in `runOagenGenerate`** (`src/generator/generate.ts`) mutates global state. Safe only because `Effect.forEach` is sequential today.
-      Fix: document the sequential-only invariant at minimum; ideally route oagen output through a logger abstraction instead of patching `console`.
+- [x] **A3. `console.log` monkey-patch in `runOagenGenerate`** (`src/generator/generate.ts`) mutates global state.
+      Landed: all Oagen emitter runs now share an Effect `Semaphore`, so quiet and visible invocations cannot overlap while the pinned upstream emitter still logs directly to the global console. Remove the guard if upstream adds a logger abstraction.
 
-- [ ] **A4. Unused parameter:** `effectiveParameters(context, operation)` in `src/contract/validate.ts` never reads `context`. Drop it.
+- [x] **A4. Unused parameter:** removed `context` from `effectiveParameters(operation)`.
 
 ---
 
 ## B. Duplication worth collapsing
 
-- [ ] **B1. Two sources of truth for target names.** `TARGETS` in `src/config/validate.ts` vs `TARGET_NAMES` in `src/generator/generate.ts`, plus `TARGET_ID_FIELD`.
-      Fix: move `TARGET_NAMES` and the id-field map into `src/config/schema.ts`; import everywhere.
+- [x] **B1. Two sources of truth for target names.** `TARGET_NAMES`, its Effect Schema, `TargetName`, and `TARGET_ID_FIELD` now live in `src/config/schema.ts` and are reused by validation, generation, and the CLI.
 
-- [ ] **B2. Triple error re-exports.** `SdkConfigLoadError` exported from `src/core/errors.ts`, re-exported by `src/config/load.ts`, and both paths exported again in `src/index.ts` (same for `ContractLoadError`, `GenerationError`).
-      Fix: keep one canonical public export path in `src/index.ts`; drop leaf-module re-exports.
+- [x] **B2. Triple error re-exports.** Errors now have one public export path from `src/core/errors.ts` through `src/index.ts`; leaf modules no longer re-export them.
 
 - [x] **B3. JSON pointer logic reimplemented.** `pruneUnreferencedSchemas` in `src/contract/profiles.ts` hand-rolled pointer decode + resolution instead of reusing `getAtJsonPointer` (`src/shared/object.ts`). Also `collectSchemaProperties` and `validateLegacyNullable` (`src/contract/validate.ts`) are two ad-hoc tree walkers.
-      Landed: pointer tokens now use Effect v4 `JsonPointer.escapeToken` / `unescapeToken`, and profile pruning reuses `getAtJsonPointer`. Effect does not provide a whole-document pointer resolver, so the small resolver remains local. Follow-up: add a shared `walkDocument(value, pointer, visit)` helper for the walkers.
+      Landed: pointer tokens use Effect v4 `JsonPointer.escapeToken` / `unescapeToken`, profile pruning reuses `getAtJsonPointer`, and `walkDocument` now owns cycle-safe pointer-aware traversal for reference collection and legacy-nullable inspection. `collectSchemaProperties` remains specialized because it deliberately resolves references and follows only composition keywords. Effect does not provide whole-document traversal or `$ref` resolution, so these focused helpers remain local.
 
-- [ ] **B4. Repeated predicates/guards.**
+- [x] **B4. Repeated predicates/guards.**
   - `isJsonMediaType`: `mediaType === "application/json" || mediaType.endsWith("+json")` appears 4x in `src/contract/validate.ts`.
   - `isRecord(components) && isRecord(components.securitySchemes)` duplicated in `src/contract/validate.ts` (`configuredSecuritySchemes`) and `src/contract/auth.ts`.
-    Fix: extract `isJsonMediaType` into `src/shared/`; share one `securitySchemesOf(document)` helper.
+    Landed: `src/shared/http.ts` owns `isJsonMediaType`; `src/contract/accessors.ts` owns `securitySchemesOf(document)`.
 
-- [ ] **B5. Identical CLI error handlers.** `SdkConfigLoadError` and `GenerationError` catch handlers in `src/cli/index.ts` are byte-identical.
-      Fix: share one `printLoadFailure(error, options)` helper or collapse the catch.
+- [x] **B5. Identical CLI error handlers.** Both tags now delegate to `printCommandFailure`.
 
 ---
 
@@ -54,24 +51,19 @@ Status key: `[ ]` open · `[x]` done · `[-]` rejected (note why)
   - Split into `validate/top-level.ts`, `validate/parameters.ts`, `validate/responses.ts`, `validate/security.ts`.
   - Add a doc comment explaining why validation is hand-rolled instead of Redocly/Spectral rules (assumed: product-specific policy + pointers into `x-signalflare-*` extensions) — confirm and write down the actual reason.
 
-- [ ] **C2. `makeExactOptionalCompatible` applied 6 times** across `src/emitters/typescript/index.ts`, redundantly re-processing already-transformed files (models → again in `generateErrors` wrapper → again over everything in `exposeSignalflareClient`). Idempotent but wasteful.
-      Fix: run once as a final pass over the full `GeneratedFile[]`. Comment that it is a regex-based AST-less transform and state its invariants (one property per line, no existing `undefined`).
+- [-] **C2. `makeExactOptionalCompatible` applied across emitter phases.** Rejected after checking Oagen's `generateAllFiles`: each emitter phase returns a disjoint file list and each generated TypeScript file is transformed once. Oagen exposes no pre-write final-file hook; applying a final pass after `generate()` would be too late because files are already integrated on disk. A future cleanup may wrap the phase methods for readability, but there is no repeated file processing to optimize.
 
-- [ ] **C3. Document the profile/audience namespace coupling.** `SdkProfile = SdkAudience` in `src/config/schema.ts` deliberately shares one namespace; the `includeAudiences` / `profiles` relationship is the least obvious part of the config.
-      Fix: one explanatory sentence in the schema + README.
+- [x] **C3. Document the profile/audience namespace coupling.** `src/config/schema.ts` and the README now explain that profile names share the audience namespace, profiles combine `includeAudiences`, and targets select named profiles.
 
 ---
 
 ## D. Documentation gaps
 
-- [ ] **D1. Diagnostic code catalog.** Codes (`operation.path-body.duplicate`, `schema.nullable.legacy`, …) are stringly scattered and are consumed by product repos/CI.
-      Fix: add `docs/diagnostics.md` (or a const registry object) so codes are greppable and testable.
+- [x] **D1. Diagnostic code catalog.** `docs/diagnostics.md` catalogs the stable configuration, contract, operation, schema, profile, Oagen, and generation namespaces and documents dynamic `openapi.<rule-id>` findings.
 
-- [ ] **D2. `x-signalflare-*` extension reference.** `x-signalflare-product`, `x-signalflare-sdk`, `x-signalflare-api-id`, `x-signalflare-implemented`, `x-signalflare-generated-profile(s)` are the public authoring contract but only documented implicitly by validation.
-      Fix: add a README table (field, location, required, semantics).
+- [x] **D2. `x-signalflare-*` extension reference.** The README now lists field, location, requirement, semantics, enum values, defaults, and output-only profile annotations.
 
-- [ ] **D3. Link temporary upstream workarounds to a removal checklist.** `normalizeContractForOagen` (`src/contract/normalize.ts`) and `stripAutomaticPagination` are marked temporary.
-      Fix: reference the upstream oagen issue / `UPSTREAM.md` entry so the next version bump includes deleting them.
+- [x] **D3. Link temporary upstream workarounds to a removal checklist.** Both adapters link to `UPSTREAM.md#temporary-workaround-removal-checklist`, which specifies the regeneration and IR conditions for deleting them on an Oagen upgrade.
 
 ---
 
@@ -79,9 +71,9 @@ Status key: `[ ]` open · `[x]` done · `[-]` rejected (note why)
 
 - [x] **E1. Reuse Effect JSON Pointer primitives.** Effect v4 exports RFC 6901 `JsonPointer.escapeToken` and `unescapeToken`, but not full document traversal or `$ref` resolution. Use those primitives inside the local resolver; do not replace Redocly bundling.
 
-- [ ] **E2. Decode compiler-owned structures with Effect Schema.** Define schemas for SDK config, diagnostics/reports, Signalflare manifests, and auth plans. Use `Schema.decodeUnknownEffect` at module/file boundaries and `Schema.fromJsonString` for JSON text. Keep cross-reference and product-policy checks as semantic validators after structural decoding. The Oagen manifest reader now uses `Schema.fromJsonString(Schema.JsonObject)` as the first small adoption.
+- [x] **E2. Decode compiler-owned structures with Effect Schema.** SDK config, diagnostics/reports, auth plans, and Signalflare manifests now have exported Effect Schemas. Dynamic config modules decode with `Schema.decodeUnknownEffect`; JSON manifests use `Schema.fromJsonString`; semantic cross-reference and product-policy diagnostics remain explicit. Error schemas now reuse the real `ValidationReport` schema rather than `Schema.declare` shape checks.
 
-- [ ] **E3. Add an Effect JSON Schema compatibility preflight.** Effect v4 provides `JsonSchema.fromSchemaOpenApi3_1` and `SchemaRepresentation.fromJsonSchemaDocument`. A local spike imported every component in Canary (12/12), Geocode (9/9), and Atlas (107/107). Add an optional pre-Oagen pass that reports unsupported JSON Schema constructs with component pointers instead of relying on Oagen warnings. Do not rewrite the canonical document until round-trip fidelity and naming are proven.
+- [x] **E3. Add an Effect JSON Schema compatibility preflight.** `validateEffectJsonSchemaCompatibility` normalizes components once with `JsonSchema.fromSchemaOpenApi3_1`, imports each root with `SchemaRepresentation.fromJsonSchemaDocument`, and emits component-pointer warnings for unsupported semantics. It is advisory because Effect and Oagen support different subsets, and it never rewrites the canonical document.
 
 - [ ] **E4. Use Effect reference allocation in Effect-owned product APIs.** `SchemaRepresentation` accepts a deterministic `referencePolicy`, and `unstable/httpapi/OpenApi.fromApi` deduplicates schemas and emits components, errors, security, and docs. This is especially promising for Atlas, whose canonical schemas already originate in Effect. Give reusable nested schemas identifiers or a reference policy so Oagen receives named freshness/lineage/run/result components instead of unresolved inline models.
 

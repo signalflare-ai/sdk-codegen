@@ -67,6 +67,7 @@ function mergeDiscriminatedUnion(
 /**
  * Temporary, diagnosed pre-IR adapters for upstream parser gaps. The canonical
  * product contract is never mutated; every applied transform is reported.
+ * See UPSTREAM.md#temporary-workaround-removal-checklist before an Oagen bump.
  */
 export function normalizeContractForOagen(document: OpenApiDocument): ContractNormalizationResult {
   const normalized = structuredClone(document);

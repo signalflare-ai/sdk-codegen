@@ -4,6 +4,7 @@ export interface TypeScriptRuntimeOptions {
   authPlan: AuthPlan;
   defaultBaseUrl: string;
   compilerVersion: string;
+  sdkVersion: string;
   productId: string;
   packageName: string;
 }
@@ -331,7 +332,7 @@ export class WorkOSBase {
     new Headers(requestOptions.headers).forEach((value, name) => headers.set(name, value));
     headers.set('Accept', 'application/json');
     headers.set('X-Signalflare-SDK', ${JSON.stringify(
-      `${options.productId}/0.0.0 (typescript; sdk-codegen/${options.compilerVersion})`,
+      `${options.productId}/${options.sdkVersion} (typescript; sdk-codegen/${options.compilerVersion})`,
     )});
     for (const [name, value] of Object.entries(resolvedAuth.headers)) headers.set(name, value);
     if ('idempotencyKey' in requestOptions && requestOptions.idempotencyKey) {

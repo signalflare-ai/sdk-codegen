@@ -46,6 +46,21 @@ These findings reinforce the upstream-first plan while making a small
 Signalflare runtime/configuration layer necessary. They are not currently a
 reason to fork.
 
+## Temporary workaround removal checklist
+
+For every `@workos/oagen` or emitter upgrade:
+
+1. Parse the canary standalone `oneOf`/discriminator component without
+   `normalizeContractForOagen` and verify that all variants and mappings survive
+   in IR and generated TypeScript. If they do, delete the union flattener, its
+   warning, and `x-signalflare-normalized-union`.
+2. Inspect pagination extraction against list-shaped and cursor-shaped canary
+   operations. Remove `stripAutomaticPagination` only when upstream requires an
+   explicit contract signal or exposes a policy that disables field-name
+   inference; regenerate and wire-test every target afterward.
+3. Search for `UPSTREAM.md#temporary-workaround-removal-checklist` so temporary
+   adapters cannot survive an upgrade review unnoticed.
+
 ## Vendoring policy
 
 Vendoring is allowed only after an issue records that emitter options, wrappers,

@@ -3,8 +3,8 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { Effect } from "effect";
-import { CompilerLive, generateConfiguredSdks } from "../src/index.js";
+import { Effect, Schema } from "effect";
+import { CompilerLive, SignalflareSdkManifestJson, generateConfiguredSdks } from "../src/index.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -164,6 +164,15 @@ describe("SDK generation", () => {
       }).pipe(Effect.provide(CompilerLive)),
     );
     expect(secondReport.targets[0]?.files).toHaveLength(report.targets[0]?.files.length ?? 0);
+
+    const signalflareManifest = Schema.decodeUnknownSync(SignalflareSdkManifestJson)(
+      await readFile(join(output, ".signalflare-sdk-manifest.json"), "utf8"),
+    );
+    expect(signalflareManifest).toMatchObject({
+      product: "canary",
+      target: "typescript",
+      profiles: ["access", "pipelines", "runner", "admin"],
+    });
 
     const oagenManifest = JSON.parse(
       await readFile(join(output, ".oagen-manifest.json"), "utf8"),

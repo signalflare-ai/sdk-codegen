@@ -2,8 +2,11 @@ import type { Diagnostic, ValidationReport } from "../contract/diagnostics.js";
 import { createValidationReport } from "../contract/diagnostics.js";
 import { isRecord } from "../shared/object.js";
 import {
+  OPENAPI_BASELINE,
   SDK_AUDIENCES,
   SDK_VISIBILITIES,
+  TARGET_ID_FIELD,
+  TARGET_NAMES,
   type SdkAudience,
   type SdkProfile,
   type SignalflareSdkConfig,
@@ -11,13 +14,6 @@ import {
 
 const AUDIENCES = new Set<string>(SDK_AUDIENCES);
 const VISIBILITIES = new Set<string>(SDK_VISIBILITIES);
-const TARGETS = ["typescript", "python", "go", "rust"] as const;
-const TARGET_ID_FIELD = {
-  typescript: "packageName",
-  python: "packageName",
-  go: "module",
-  rust: "crateName",
-} as const;
 
 function addError(
   diagnostics: Diagnostic[],
@@ -119,11 +115,11 @@ export function validateSdkConfig(value: unknown): ValidationReport {
         "#/contract/spec",
       );
     }
-    if (contract.openapiBaseline !== undefined && contract.openapiBaseline !== "3.1.2") {
+    if (contract.openapiBaseline !== undefined && contract.openapiBaseline !== OPENAPI_BASELINE) {
       addError(
         diagnostics,
         "config.contract.baseline.invalid",
-        "The supported authoring baseline is OpenAPI 3.1.2.",
+        `The supported authoring baseline is OpenAPI ${OPENAPI_BASELINE}.`,
         "#/contract/openapiBaseline",
       );
     }
@@ -190,7 +186,7 @@ export function validateSdkConfig(value: unknown): ValidationReport {
       "#/targets",
     );
   } else {
-    for (const targetName of TARGETS) {
+    for (const targetName of TARGET_NAMES) {
       const target = targets[targetName];
       if (target === undefined) continue;
       const pointer = `#/targets/${targetName}`;
@@ -271,7 +267,7 @@ export function validateSdkConfig(value: unknown): ValidationReport {
     }
 
     for (const targetName of Object.keys(targets)) {
-      if (!(TARGETS as readonly string[]).includes(targetName)) {
+      if (!(TARGET_NAMES as readonly string[]).includes(targetName)) {
         addError(
           diagnostics,
           "config.target.unknown",

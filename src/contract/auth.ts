@@ -1,29 +1,46 @@
+import { Schema } from "effect";
 import { isRecord, resolveLocalReference } from "../shared/object.js";
+import { securitySchemesOf } from "./accessors.js";
 import type { OpenApiDocument } from "./load.js";
 import { listContractOperations } from "./operations.js";
 
-export type AuthSchemePlan =
-  | { id: string; kind: "bearer" }
-  | { id: string; kind: "apiKey"; in: "header" | "query" | "cookie"; name: string };
+const BearerAuthSchemePlan = Schema.Struct({
+  id: Schema.NonEmptyString,
+  kind: Schema.tag("bearer"),
+});
+const ApiKeyAuthSchemePlan = Schema.Struct({
+  id: Schema.NonEmptyString,
+  kind: Schema.tag("apiKey"),
+  in: Schema.Literals(["header", "query", "cookie"]),
+  name: Schema.NonEmptyString,
+});
 
-export interface SecurityAlternativePlan {
+export const AuthSchemePlan = Schema.Union([BearerAuthSchemePlan, ApiKeyAuthSchemePlan]);
+export type AuthSchemePlan = typeof AuthSchemePlan.Type;
+
+export const SecurityAlternativePlan = Schema.Struct({
   /** Scheme IDs required together. OpenAPI object entries are logical AND. */
-  schemes: string[];
-}
+  schemes: Schema.Array(Schema.NonEmptyString),
+});
+export interface SecurityAlternativePlan extends Schema.Schema.Type<
+  typeof SecurityAlternativePlan
+> {}
 
-export interface OperationAuthPlan {
-  method: string;
-  path: string;
-  operationId: string;
+export const OperationAuthPlan = Schema.Struct({
+  method: Schema.NonEmptyString,
+  path: Schema.NonEmptyString,
+  operationId: Schema.NonEmptyString,
   /** Alternatives are logical OR. An empty array means explicitly anonymous. */
-  alternatives: SecurityAlternativePlan[];
-}
+  alternatives: Schema.Array(SecurityAlternativePlan),
+});
+export interface OperationAuthPlan extends Schema.Schema.Type<typeof OperationAuthPlan> {}
 
-export interface AuthPlan {
-  schemes: AuthSchemePlan[];
-  defaults: SecurityAlternativePlan[];
-  operations: OperationAuthPlan[];
-}
+export const AuthPlan = Schema.Struct({
+  schemes: Schema.Array(AuthSchemePlan),
+  defaults: Schema.Array(SecurityAlternativePlan),
+  operations: Schema.Array(OperationAuthPlan),
+});
+export interface AuthPlan extends Schema.Schema.Type<typeof AuthPlan> {}
 
 function compileRequirements(value: unknown): SecurityAlternativePlan[] {
   if (!Array.isArray(value)) return [];
@@ -62,10 +79,7 @@ function compileScheme(
 }
 
 export function compileAuthPlan(document: OpenApiDocument): AuthPlan {
-  const securitySchemes =
-    isRecord(document.components) && isRecord(document.components.securitySchemes)
-      ? document.components.securitySchemes
-      : {};
+  const securitySchemes = securitySchemesOf(document);
   const schemes = Object.entries(securitySchemes)
     .flatMap(([id, scheme]) => {
       const compiled = compileScheme(document, id, scheme);

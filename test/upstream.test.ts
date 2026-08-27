@@ -2,9 +2,10 @@ import { expect, test } from "bun:test";
 import { resolve } from "node:path";
 import { parseSpec } from "@workos/oagen";
 import packageManifest from "../package.json" with { type: "json" };
-import { OAGEN_EMITTERS_VERSION, validateOagenIr } from "../src/index.js";
+import { COMPILER_VERSION, OAGEN_EMITTERS_VERSION, validateOagenIr } from "../src/index.js";
 
-test("pins compiler provenance to the installed emitter dependency", () => {
+test("pins compiler provenance to package metadata and installed emitters", () => {
+  expect(packageManifest.version).toBe(COMPILER_VERSION);
   expect(packageManifest.dependencies["@workos/oagen-emitters"]).toBe(OAGEN_EMITTERS_VERSION);
 });
 

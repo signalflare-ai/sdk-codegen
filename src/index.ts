@@ -1,8 +1,11 @@
 export { defineSdkConfig } from "./config/define.js";
-export { loadSdkConfig, SdkConfigLoadError } from "./config/load.js";
+export { loadSdkConfig } from "./config/load.js";
 export {
+  OPENAPI_BASELINE,
   SDK_AUDIENCES,
   SDK_VISIBILITIES,
+  TARGET_ID_FIELD,
+  TARGET_NAMES,
   type BaseTargetConfig,
   type ContractConfig,
   type GoTargetConfig,
@@ -13,8 +16,9 @@ export {
   type SdkAudience,
   type SdkProfile,
   type SdkVisibility,
-  type SignalflareSdkConfig,
+  SignalflareSdkConfig,
   type TargetConfig,
+  type TargetName,
   type TypeScriptTargetConfig,
 } from "./config/schema.js";
 export {
@@ -24,18 +28,18 @@ export {
   validateSdkConfig,
 } from "./config/validate.js";
 export {
-  type Diagnostic,
-  type DiagnosticOperation,
-  type DiagnosticSeverity,
-  type DiagnosticSummary,
-  type ValidationReport,
+  Diagnostic,
+  DiagnosticOperation,
+  DiagnosticSeverity,
+  DiagnosticSummary,
+  ValidationReport,
 } from "./contract/diagnostics.js";
 export {
+  AuthPlan,
+  AuthSchemePlan,
+  OperationAuthPlan,
+  SecurityAlternativePlan,
   compileAuthPlan,
-  type AuthPlan,
-  type AuthSchemePlan,
-  type OperationAuthPlan,
-  type SecurityAlternativePlan,
 } from "./contract/auth.js";
 export {
   type OperationSdkMetadata,
@@ -45,12 +49,8 @@ export {
   parseOperationSdkMetadata,
   parseProductMetadata,
 } from "./contract/extensions.js";
-export {
-  ContractLoadError,
-  loadProductContract,
-  type LoadedContract,
-  type OpenApiDocument,
-} from "./contract/load.js";
+export { loadProductContract, type LoadedContract, type OpenApiDocument } from "./contract/load.js";
+export { validateEffectJsonSchemaCompatibility } from "./contract/json-schema.js";
 export {
   normalizeContractForOagen,
   type ContractNormalizationResult,
@@ -64,22 +64,28 @@ export {
 } from "./contract/profiles.js";
 export { validateProductContract } from "./contract/validate.js";
 export {
-  COMPILER_VERSION,
-  GenerationError,
-  OAGEN_EMITTERS_VERSION,
-  TARGET_NAMES,
   generateConfiguredSdks,
   type GenerateSdkOptions,
   type GeneratedTargetReport,
   type GenerationReport,
-  type TargetName,
 } from "./generator/generate.js";
 export {
   runValidateCommand,
   type ValidateCommandOptions,
   type ValidateCommandResult,
 } from "./cli/validate.js";
-export { CliUsageError } from "./core/errors.js";
+export {
+  CliUsageError,
+  ContractLoadError,
+  GenerationError,
+  SdkConfigLoadError,
+} from "./core/errors.js";
 export { CompilerLive } from "./core/layers.js";
 export { signalflareOagenPlugin } from "./oagen/plugin.js";
 export { validateOagenIr } from "./oagen/validate-ir.js";
+export {
+  SIGNALFLARE_MANIFEST_SCHEMA_VERSION,
+  SignalflareSdkManifest,
+  SignalflareSdkManifestJson,
+} from "./generator/manifest.js";
+export { COMPILER_VERSION, GENERATED_SDK_VERSION, OAGEN_EMITTERS_VERSION } from "./version.js";

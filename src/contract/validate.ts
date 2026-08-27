@@ -1,8 +1,16 @@
-import type { SignalflareSdkConfig } from "../config/schema.js";
-import { escapeJsonPointer, isRecord, resolveLocalReference } from "../shared/object.js";
+import { OPENAPI_BASELINE, type SignalflareSdkConfig } from "../config/schema.js";
+import { isJsonMediaType } from "../shared/http.js";
+import {
+  escapeJsonPointer,
+  isRecord,
+  resolveLocalReference,
+  walkDocument,
+} from "../shared/object.js";
+import { securitySchemesOf } from "./accessors.js";
 import type { Diagnostic, DiagnosticOperation, ValidationReport } from "./diagnostics.js";
 import { createValidationReport } from "./diagnostics.js";
 import { parseOperationSdkMetadata, parseProductMetadata } from "./extensions.js";
+import { validateEffectJsonSchemaCompatibility } from "./json-schema.js";
 import { listContractOperations, type ContractOperation } from "./operations.js";
 import type { OpenApiDocument } from "./load.js";
 
@@ -36,10 +44,7 @@ function addDiagnostic(
 }
 
 function configuredSecuritySchemes(context: ValidationContext): Record<string, unknown> {
-  return isRecord(context.document.components) &&
-    isRecord(context.document.components.securitySchemes)
-    ? context.document.components.securitySchemes
-    : {};
+  return securitySchemesOf(context.document);
 }
 
 function validateSecurityRequirements(
@@ -157,9 +162,9 @@ function validateTopLevel(context: ValidationContext): void {
       pointer: "#/openapi",
     });
   } else if (!/^3\.1\.\d+$/.test(version)) {
-    let hint = "Author the canonical contract as OpenAPI 3.1.2.";
+    let hint = `Author the canonical contract as OpenAPI ${OPENAPI_BASELINE}.`;
     if (version.startsWith("2."))
-      hint = "Convert Swagger/OpenAPI 2.0 to OpenAPI 3.1.2 before SDK generation.";
+      hint = `Convert Swagger/OpenAPI 2.0 to OpenAPI ${OPENAPI_BASELINE} before SDK generation.`;
     else if (version.startsWith("3.0."))
       hint = "Run the explicit OpenAPI 3.0 to 3.1 normalization path first.";
     else if (version.startsWith("3.2."))
@@ -171,13 +176,13 @@ function validateTopLevel(context: ValidationContext): void {
       pointer: "#/openapi",
       hint,
     });
-  } else if (version !== (config.contract.openapiBaseline ?? "3.1.2")) {
+  } else if (version !== (config.contract.openapiBaseline ?? OPENAPI_BASELINE)) {
     addDiagnostic(context, {
       severity: "warning",
       code: "contract.openapi.baseline-mismatch",
-      message: `The contract uses OpenAPI ${version}; the authoring baseline is ${config.contract.openapiBaseline ?? "3.1.2"}.`,
+      message: `The contract uses OpenAPI ${version}; the authoring baseline is ${config.contract.openapiBaseline ?? OPENAPI_BASELINE}.`,
       pointer: "#/openapi",
-      hint: "Normalize and commit the canonical contract as OpenAPI 3.1.2.",
+      hint: `Normalize and commit the canonical contract as OpenAPI ${OPENAPI_BASELINE}.`,
     });
   }
 
@@ -343,7 +348,7 @@ function validateOperationIdentity(
   }
 }
 
-function effectiveParameters(context: ValidationContext, operation: ContractOperation): unknown[] {
+function effectiveParameters(operation: ContractOperation): unknown[] {
   const pathParameters = Array.isArray(operation.pathItem.parameters)
     ? operation.pathItem.parameters
     : [];
@@ -379,8 +384,8 @@ function collectSchemaProperties(
 function requestBodySchema(context: ValidationContext, operation: ContractOperation): unknown {
   const requestBody = resolveObject(context.document, operation.operation.requestBody);
   if (!requestBody || !isRecord(requestBody.content)) return undefined;
-  const jsonEntry = Object.entries(requestBody.content).find(
-    ([mediaType]) => mediaType === "application/json" || mediaType.endsWith("+json"),
+  const jsonEntry = Object.entries(requestBody.content).find(([mediaType]) =>
+    isJsonMediaType(mediaType),
   );
   if (!jsonEntry) return undefined;
   const media = resolveObject(context.document, jsonEntry[1]);
@@ -396,7 +401,7 @@ function validateParameters(context: ValidationContext, operation: ContractOpera
   const declaredPathParameters = new Set<string>();
   const seen = new Set<string>();
 
-  for (const [index, rawParameter] of effectiveParameters(context, operation).entries()) {
+  for (const [index, rawParameter] of effectiveParameters(operation).entries()) {
     const pointer = `${operation.pointer}/parameters/${index}`;
     const parameter = resolveObject(context.document, rawParameter);
     if (!parameter) {
@@ -565,8 +570,8 @@ function validateRequestBody(
     return;
   }
 
-  const jsonMedia = Object.entries(body.content).filter(
-    ([mediaType]) => mediaType === "application/json" || mediaType.endsWith("+json"),
+  const jsonMedia = Object.entries(body.content).filter(([mediaType]) =>
+    isJsonMediaType(mediaType),
   );
   if (jsonMedia.length === 0 && production) {
     addDiagnostic(
@@ -649,7 +654,7 @@ function validateResponses(
       continue;
     }
     for (const [mediaType, rawMedia] of Object.entries(response.content)) {
-      const isJson = mediaType === "application/json" || mediaType.endsWith("+json");
+      const isJson = isJsonMediaType(mediaType);
       if (!isJson) {
         if (production) {
           addDiagnostic(
@@ -700,8 +705,8 @@ function validateResponses(
     for (const [status, rawResponse] of errors) {
       const response = resolveObject(context.document, rawResponse);
       if (!response || !isRecord(response.content)) continue;
-      const json = Object.entries(response.content).find(
-        ([mediaType]) => mediaType === "application/json" || mediaType.endsWith("+json"),
+      const json = Object.entries(response.content).find(([mediaType]) =>
+        isJsonMediaType(mediaType),
       );
       const media = json ? resolveObject(context.document, json[1]) : undefined;
       if (!json || !isNamedComponentSchema(media?.schema)) {
@@ -752,30 +757,17 @@ function validateSecurity(
 }
 
 function validateLegacyNullable(context: ValidationContext): void {
-  const visited = new WeakSet<object>();
-  const walk = (value: unknown, pointer: string): void => {
-    if (typeof value !== "object" || value === null || visited.has(value)) return;
-    visited.add(value);
-    if (Array.isArray(value)) {
-      for (const [index, child] of value.entries()) walk(child, `${pointer}/${index}`);
-      return;
-    }
-    for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
-      const childPointer = `${pointer}/${escapeJsonPointer(key)}`;
-      if (key === "nullable" && typeof child === "boolean") {
-        addDiagnostic(context, {
-          severity: "error",
-          code: "schema.nullable.legacy",
-          message:
-            "OpenAPI 3.1 schemas must express nullability with JSON Schema types, not nullable: true.",
-          pointer: childPointer,
-          hint: 'Use type: ["<type>", "null"] or an equivalent anyOf.',
-        });
-      }
-      walk(child, childPointer);
-    }
-  };
-  walk(context.document, "#");
+  walkDocument(context.document, (value, pointer) => {
+    if (!isRecord(value) || typeof value.nullable !== "boolean") return;
+    addDiagnostic(context, {
+      severity: "error",
+      code: "schema.nullable.legacy",
+      message:
+        "OpenAPI 3.1 schemas must express nullability with JSON Schema types, not nullable: true.",
+      pointer: `${pointer}/nullable`,
+      hint: 'Use type: ["<type>", "null"] or an equivalent anyOf.',
+    });
+  });
 }
 
 export function validateProductContract(
@@ -792,6 +784,9 @@ export function validateProductContract(
 
   validateTopLevel(context);
   validateLegacyNullable(context);
+  for (const diagnostic of validateEffectJsonSchemaCompatibility(document).diagnostics) {
+    addDiagnostic(context, diagnostic);
+  }
   const operationIds = new Map<string, ContractOperation>();
 
   for (const operation of listContractOperations(document)) {

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { defineSdkConfig, validateSdkConfig } from "../src/index.js";
+import { Result, Schema } from "effect";
+import { SignalflareSdkConfig, defineSdkConfig, validateSdkConfig } from "../src/index.js";
 
 const validConfig = defineSdkConfig({
   product: { id: "canary", displayName: "Canary" },
@@ -25,6 +26,20 @@ describe("SDK config", () => {
       diagnostics: [],
       summary: { errors: 0, warnings: 0, info: 0 },
     });
+  });
+
+  test("decodes the compiler-owned config boundary with Effect Schema", () => {
+    const decoded = Schema.decodeUnknownResult(SignalflareSdkConfig)(validConfig, {
+      errors: "all",
+      onExcessProperty: "error",
+    });
+    expect(Result.isSuccess(decoded)).toBe(true);
+
+    const withExcessProperty = Schema.decodeUnknownResult(SignalflareSdkConfig)(
+      { ...validConfig, unsupported: true },
+      { errors: "all", onExcessProperty: "error" },
+    );
+    expect(Result.isFailure(withExcessProperty)).toBe(true);
   });
 
   test("rejects unknown profiles and target references", () => {

@@ -2,15 +2,11 @@
 
 import { BunRuntime } from "@effect/platform-bun";
 import { Console, Effect } from "effect";
+import { TARGET_NAMES, type TargetName } from "../config/schema.js";
 import type { Diagnostic, ValidationReport } from "../contract/diagnostics.js";
 import { CliUsageError } from "../core/errors.js";
 import { CompilerLive } from "../core/layers.js";
-import {
-  TARGET_NAMES,
-  generateConfiguredSdks,
-  type GenerationReport,
-  type TargetName,
-} from "../generator/generate.js";
+import { generateConfiguredSdks, type GenerationReport } from "../generator/generate.js";
 import { runValidateCommand, type ValidateCommandResult } from "./validate.js";
 
 interface CliOptions {
@@ -127,6 +123,15 @@ const printValidationFailure = Effect.fn("SdkCli.printValidationFailure")(functi
   }
 });
 
+const printCommandFailure = Effect.fn("SdkCli.printCommandFailure")(function* (
+  error: { readonly message: string; readonly validation?: ValidationReport },
+  options: CliOptions,
+) {
+  if (error.validation) yield* printValidationFailure(error.validation, options);
+  else yield* Console.error(error.message);
+  yield* setExitCode(1);
+});
+
 const printValidationResult = Effect.fn("SdkCli.printValidationResult")(function* (
   result: ValidateCommandResult,
   options: CliOptions,
@@ -187,18 +192,8 @@ const program = parseArguments(process.argv.slice(2)).pipe(
   Effect.flatMap((options) =>
     runCommand(options).pipe(
       Effect.catchTags({
-        SdkConfigLoadError: (error) =>
-          Effect.gen(function* () {
-            if (error.validation) yield* printValidationFailure(error.validation, options);
-            else yield* Console.error(error.message);
-            yield* setExitCode(1);
-          }),
-        GenerationError: (error) =>
-          Effect.gen(function* () {
-            if (error.validation) yield* printValidationFailure(error.validation, options);
-            else yield* Console.error(error.message);
-            yield* setExitCode(1);
-          }),
+        SdkConfigLoadError: (error) => printCommandFailure(error, options),
+        GenerationError: (error) => printCommandFailure(error, options),
       }),
     ),
   ),

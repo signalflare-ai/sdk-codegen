@@ -43,8 +43,20 @@ Python, Go, and Rust spec-derived cores can be emitted but still require their
 product-owned transport/error runtimes. TypeScript Effect generation remains the
 next client-surface milestone. See [`docs/architecture.md`](docs/architecture.md),
 [`docs/sdk-codegen-spec.md`](docs/sdk-codegen-spec.md),
+[`docs/diagnostics.md`](docs/diagnostics.md),
 [`docs/real-contract-pilots.md`](docs/real-contract-pilots.md),
 [`PROPOSALS.md`](PROPOSALS.md), and [`UPSTREAM.md`](UPSTREAM.md).
+
+## Signalflare OpenAPI extensions
+
+| Field                              | Location              | Required    | Semantics                                                                                                                                                                                         |
+| ---------------------------------- | --------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `x-signalflare-product`            | Document root         | Yes         | `{ id, displayName, contractVersion }`; identifies the product and positive integer contract revision.                                                                                            |
+| `x-signalflare-sdk`                | Operation             | Yes         | Declares non-empty `audiences`, `visibility` (`public`, `partner`, `internal`), `stability` (`stable`, `beta`, `experimental`), optional `service`, and optional `generate` (defaults to `true`). |
+| `x-signalflare-api-id`             | Operation             | Yes         | Stable source API identity used in selected-operation metadata.                                                                                                                                   |
+| `x-signalflare-implemented`        | Operation             | No          | Defaults to `true`; `false` operations may only use the `preview` audience and remain out of production profiles.                                                                                 |
+| `x-signalflare-generated-profile`  | Derived document root | Output only | Names the single profile used by `buildProfileContract`. Do not author it in the canonical contract.                                                                                              |
+| `x-signalflare-generated-profiles` | Derived document root | Output only | Lists profiles combined by `buildProfilesContract`. Do not author it in the canonical contract.                                                                                                   |
 
 ## Development
 
@@ -53,6 +65,11 @@ bun install --frozen-lockfile
 bun run check
 bun run build
 ```
+
+A profile name intentionally uses the same namespace as an operation audience.
+`profiles.<name>.includeAudiences` defines which audiences that profile contains;
+each target's `profiles` array then selects the named profiles to combine into
+that generated SDK.
 
 Validate or generate a product SDK:
 

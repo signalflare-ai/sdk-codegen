@@ -1,32 +1,40 @@
-export type DiagnosticSeverity = "error" | "warning" | "info";
+import { Schema } from "effect";
 
-export interface DiagnosticOperation {
-  method: string;
-  path: string;
-  operationId?: string;
-}
+export const DIAGNOSTIC_SEVERITIES = ["error", "warning", "info"] as const;
+export const DiagnosticSeverity = Schema.Literals(DIAGNOSTIC_SEVERITIES);
+export type DiagnosticSeverity = typeof DiagnosticSeverity.Type;
 
-export interface Diagnostic {
-  severity: DiagnosticSeverity;
-  code: string;
-  message: string;
-  file?: string;
-  pointer?: string;
-  operation?: DiagnosticOperation;
-  hint?: string;
-}
+export const DiagnosticOperation = Schema.Struct({
+  method: Schema.String,
+  path: Schema.String,
+  operationId: Schema.optionalKey(Schema.String),
+});
+export interface DiagnosticOperation extends Schema.Schema.Type<typeof DiagnosticOperation> {}
 
-export interface DiagnosticSummary {
-  errors: number;
-  warnings: number;
-  info: number;
-}
+export const Diagnostic = Schema.Struct({
+  severity: DiagnosticSeverity,
+  code: Schema.NonEmptyString,
+  message: Schema.String,
+  file: Schema.optionalKey(Schema.String),
+  pointer: Schema.optionalKey(Schema.String),
+  operation: Schema.optionalKey(DiagnosticOperation),
+  hint: Schema.optionalKey(Schema.String),
+});
+export interface Diagnostic extends Schema.Schema.Type<typeof Diagnostic> {}
 
-export interface ValidationReport {
-  valid: boolean;
-  diagnostics: Diagnostic[];
-  summary: DiagnosticSummary;
-}
+export const DiagnosticSummary = Schema.Struct({
+  errors: Schema.Number,
+  warnings: Schema.Number,
+  info: Schema.Number,
+});
+export interface DiagnosticSummary extends Schema.Schema.Type<typeof DiagnosticSummary> {}
+
+export const ValidationReport = Schema.Struct({
+  valid: Schema.Boolean,
+  diagnostics: Schema.Array(Diagnostic),
+  summary: DiagnosticSummary,
+});
+export interface ValidationReport extends Schema.Schema.Type<typeof ValidationReport> {}
 
 const SEVERITY_ORDER: Record<DiagnosticSeverity, number> = {
   error: 0,
@@ -46,7 +54,7 @@ export function compareDiagnostics(left: Diagnostic, right: Diagnostic): number 
 
 export function createValidationReport(diagnostics: Iterable<Diagnostic>): ValidationReport {
   const sorted = [...diagnostics].sort(compareDiagnostics);
-  const summary: DiagnosticSummary = { errors: 0, warnings: 0, info: 0 };
+  const summary = { errors: 0, warnings: 0, info: 0 };
 
   for (const diagnostic of sorted) {
     if (diagnostic.severity === "error") summary.errors += 1;

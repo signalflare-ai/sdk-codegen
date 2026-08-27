@@ -1,6 +1,6 @@
 import type { SdkProfile, SignalflareSdkConfig } from "../config/schema.js";
 import { audiencesForProfile, profileIsEnabled } from "../config/validate.js";
-import { escapeJsonPointer, getAtJsonPointer, isRecord } from "../shared/object.js";
+import { escapeJsonPointer, getAtJsonPointer, isRecord, walkDocument } from "../shared/object.js";
 import type { Diagnostic, ValidationReport } from "./diagnostics.js";
 import { createValidationReport } from "./diagnostics.js";
 import { parseOperationSdkMetadata } from "./extensions.js";
@@ -43,23 +43,14 @@ function pruneUnreferencedSchemas(document: OpenApiDocument): void {
   const reachable = new Set<string>();
   const visitedReferences = new Set<string>();
   const pendingReferences: string[] = [];
-  const seen = new WeakSet<object>();
+  const collectReferences = (value: unknown): void =>
+    walkDocument(value, (child) => {
+      if (typeof child === "string" && child.startsWith("#/components/")) {
+        pendingReferences.push(child);
+      }
+    });
 
-  const walk = (value: unknown): void => {
-    if (typeof value === "string" && value.startsWith("#/components/")) {
-      pendingReferences.push(value);
-      return;
-    }
-    if (typeof value !== "object" || value === null || seen.has(value)) return;
-    seen.add(value);
-    if (Array.isArray(value)) {
-      for (const child of value) walk(child);
-      return;
-    }
-    for (const child of Object.values(value as Record<string, unknown>)) walk(child);
-  };
-
-  walk(document.paths);
+  collectReferences(document.paths);
   while (pendingReferences.length > 0) {
     const reference = pendingReferences.pop()!;
     if (visitedReferences.has(reference)) continue;
@@ -67,7 +58,7 @@ function pruneUnreferencedSchemas(document: OpenApiDocument): void {
     const schemaName = componentReferenceName(reference, "schemas");
     if (schemaName !== undefined) reachable.add(schemaName);
 
-    walk(getAtJsonPointer(document, reference));
+    collectReferences(getAtJsonPointer(document, reference));
   }
 
   for (const name of Object.keys(schemas)) {

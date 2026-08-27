@@ -1,9 +1,9 @@
 import { dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { Effect } from "effect";
-import type { ValidationReport } from "../contract/diagnostics.js";
+import { Effect, Schema } from "effect";
+import { createValidationReport, type ValidationReport } from "../contract/diagnostics.js";
 import { SdkConfigLoadError } from "../core/errors.js";
-import type { SignalflareSdkConfig } from "./schema.js";
+import { SignalflareSdkConfig } from "./schema.js";
 import { validateSdkConfig } from "./validate.js";
 
 export interface LoadedSdkConfig {
@@ -12,8 +12,6 @@ export interface LoadedSdkConfig {
   directory: string;
   validation: ValidationReport;
 }
-
-export { SdkConfigLoadError } from "../core/errors.js";
 
 export const loadSdkConfig = Effect.fn("SdkConfig.load")(function* (
   configPath = "sdk.config.ts",
@@ -41,8 +39,29 @@ export const loadSdkConfig = Effect.fn("SdkConfig.load")(function* (
     });
   }
 
+  const config = yield* Schema.decodeUnknownEffect(SignalflareSdkConfig)(value, {
+    errors: "all",
+    onExcessProperty: "error",
+  }).pipe(
+    Effect.mapError(
+      (cause) =>
+        new SdkConfigLoadError({
+          message: `Invalid SDK config at ${absolutePath}: ${cause.message}`,
+          validation: createValidationReport([
+            {
+              severity: "error",
+              code: "config.schema.invalid",
+              message: cause.message,
+              pointer: "#",
+            },
+          ]),
+          cause,
+        }),
+    ),
+  );
+
   return {
-    config: value as SignalflareSdkConfig,
+    config,
     path: absolutePath,
     directory: dirname(absolutePath),
     validation,

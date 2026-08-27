@@ -31,3 +31,23 @@ export function resolveLocalReference(document: unknown, value: unknown): unknow
   if (!isRecord(value) || typeof value.$ref !== "string") return value;
   return getAtJsonPointer(document, value.$ref) ?? value;
 }
+
+export function walkDocument(
+  value: unknown,
+  visit: (value: unknown, pointer: string) => void,
+  pointer = "#",
+  visited = new WeakSet<object>(),
+): void {
+  visit(value, pointer);
+  if (typeof value !== "object" || value === null || visited.has(value)) return;
+  visited.add(value);
+  if (Array.isArray(value)) {
+    for (const [index, child] of value.entries()) {
+      walkDocument(child, visit, `${pointer}/${index}`, visited);
+    }
+    return;
+  }
+  for (const [key, child] of Object.entries(value)) {
+    walkDocument(child, visit, `${pointer}/${escapeJsonPointer(key)}`, visited);
+  }
+}

@@ -21,8 +21,6 @@ export interface LoadedContract {
   validation: ValidationReport;
 }
 
-export { ContractLoadError } from "../core/errors.js";
-
 function problemPointer(problem: unknown): string | undefined {
   if (!isRecord(problem) || !Array.isArray(problem.location)) return undefined;
   for (const location of problem.location) {

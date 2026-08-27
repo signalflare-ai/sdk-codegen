@@ -9,6 +9,7 @@ import {
 } from "@workos/oagen";
 import { nodeEmitter } from "@workos/oagen-emitters";
 import type { AuthPlan } from "../../contract/auth.js";
+import { OAGEN_EMITTERS_VERSION } from "../../version.js";
 import { generateTypeScriptRuntime, type TypeScriptRuntimeOptions } from "./runtime.js";
 
 export interface SignalflareTypeScriptEmitterOptions extends TypeScriptRuntimeOptions {
@@ -25,6 +26,7 @@ function optionsFor(context: EmitterContext): SignalflareTypeScriptEmitterOption
     !options.authPlan ||
     typeof options.defaultBaseUrl !== "string" ||
     typeof options.compilerVersion !== "string" ||
+    typeof options.sdkVersion !== "string" ||
     typeof options.productId !== "string" ||
     typeof options.packageName !== "string" ||
     typeof options.clientClassName !== "string"
@@ -48,22 +50,43 @@ function makeExactOptionalCompatible(files: GeneratedFile[]): GeneratedFile[] {
   return files;
 }
 
+function replacePinnedUpstreamOutput(
+  content: string,
+  expected: string,
+  replacement: string,
+  label: string,
+): string {
+  const first = content.indexOf(expected);
+  if (first < 0 || first !== content.lastIndexOf(expected)) {
+    throw new Error(
+      `Unable to rewrite ${label} from @workos/oagen-emitters@${OAGEN_EMITTERS_VERSION}; expected exactly one ${JSON.stringify(expected)}.`,
+    );
+  }
+  return content.replace(expected, replacement);
+}
+
 function exposeSignalflareClient(files: GeneratedFile[], context: EmitterContext): GeneratedFile[] {
   const options = optionsFor(context);
-  for (const file of files) {
-    if (file.path !== "src/index.ts") continue;
-    file.content = file.content
-      .replace(
-        "export type { WorkOSOptions } from './common/interfaces/workos-options.interface';",
-        "export type { ClientOptions, Credential, CredentialContext, CredentialProvider } from './common/interfaces/workos-options.interface';",
-      )
-      .replace(
-        "export { WorkOS } from './workos';",
-        `export { WorkOS as ${options.clientClassName} } from './workos';`,
-      );
-    if (!file.content.includes("operation-manifest")) {
-      file.content += "\nexport { operationManifest } from './operation-manifest';\n";
-    }
+  const index = files.find((file) => file.path === "src/index.ts");
+  if (!index) {
+    throw new Error(
+      `@workos/oagen-emitters@${OAGEN_EMITTERS_VERSION} did not emit the expected src/index.ts entrypoint.`,
+    );
+  }
+  index.content = replacePinnedUpstreamOutput(
+    index.content,
+    "export type { WorkOSOptions } from './common/interfaces/workos-options.interface';",
+    "export type { ClientOptions, Credential, CredentialContext, CredentialProvider } from './common/interfaces/workos-options.interface';",
+    "the generated client options export",
+  );
+  index.content = replacePinnedUpstreamOutput(
+    index.content,
+    "export { WorkOS } from './workos';",
+    `export { WorkOS as ${options.clientClassName} } from './workos';`,
+    "the generated client class export",
+  );
+  if (!index.content.includes("operation-manifest")) {
+    index.content += "\nexport { operationManifest } from './operation-manifest';\n";
   }
   return makeExactOptionalCompatible(files);
 }
@@ -121,6 +144,11 @@ export const signalflareTypeScriptEmitter: Emitter = {
   formatCommand: (targetDir) => nodeEmitter.formatCommand?.(targetDir) ?? null,
 };
 
+/**
+ * Removes Oagen's heuristic pagination until the parser distinguishes explicit
+ * contract pagination from field-name inference. See the removal checklist in
+ * UPSTREAM.md#temporary-workaround-removal-checklist.
+ */
 export function stripAutomaticPagination(spec: ApiSpec): ApiSpec {
   return {
     ...spec,

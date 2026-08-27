@@ -9,9 +9,15 @@ import {
   type OperationHint,
 } from "@workos/oagen";
 import { goEmitter, pythonEmitter, rustEmitter } from "@workos/oagen-emitters";
-import { Effect, FileSystem, Schema } from "effect";
+import { Effect, FileSystem, Schema, Semaphore } from "effect";
 import { loadSdkConfig } from "../config/load.js";
-import type { BaseTargetConfig, SdkProfile, SignalflareSdkConfig } from "../config/schema.js";
+import {
+  OPENAPI_BASELINE,
+  TARGET_NAMES,
+  type SdkProfile,
+  type SignalflareSdkConfig,
+  type TargetName,
+} from "../config/schema.js";
 import { compileAuthPlan } from "../contract/auth.js";
 import type { Diagnostic, ValidationReport } from "../contract/diagnostics.js";
 import { createValidationReport } from "../contract/diagnostics.js";
@@ -26,11 +32,12 @@ import {
   type SignalflareTypeScriptEmitterOptions,
 } from "../emitters/typescript/index.js";
 import { validateOagenIr } from "../oagen/validate-ir.js";
-
-export const COMPILER_VERSION = "0.0.0";
-export const OAGEN_EMITTERS_VERSION = "0.24.4";
-export const TARGET_NAMES = ["typescript", "python", "go", "rust"] as const;
-export type TargetName = (typeof TARGET_NAMES)[number];
+import { COMPILER_VERSION, GENERATED_SDK_VERSION, OAGEN_EMITTERS_VERSION } from "../version.js";
+import {
+  SIGNALFLARE_MANIFEST_SCHEMA_VERSION,
+  SignalflareSdkManifestJson,
+  type SignalflareSdkManifest,
+} from "./manifest.js";
 
 const OagenManifestFromJson = Schema.fromJsonString(Schema.JsonObject);
 
@@ -62,11 +69,11 @@ export interface GenerationReport {
   validation: ValidationReport;
 }
 
-export { GenerationError } from "../core/errors.js";
+type ConfiguredTarget = NonNullable<SignalflareSdkConfig["targets"][TargetName]>;
 
 interface TargetDefinition {
   name: TargetName;
-  config: BaseTargetConfig & Record<string, unknown>;
+  config: ConfiguredTarget;
   emitter: Emitter;
   language: string;
 }
@@ -119,7 +126,7 @@ function targetDefinitions(config: SignalflareSdkConfig): TargetDefinition[] {
   };
 
   return TARGET_NAMES.flatMap((name) => {
-    const target = config.targets[name] as (BaseTargetConfig & Record<string, unknown>) | undefined;
+    const target = config.targets[name];
     if (!target || target.enabled === false) return [];
     return [{ name, config: target, ...emitters[name] }];
   });
@@ -171,16 +178,14 @@ function firstServerUrl(document: OpenApiDocument): string {
 }
 
 function packageIdentifier(target: TargetDefinition): string {
-  for (const key of ["packageName", "module", "crateName"] as const) {
-    const value = target.config[key];
-    if (typeof value === "string") return value;
-  }
-  return target.name;
+  if ("packageName" in target.config) return target.config.packageName;
+  if ("module" in target.config) return target.config.module;
+  return target.config.crateName;
 }
 
 function runtimeWarnings(target: TargetDefinition): string[] {
   if (target.name === "typescript") {
-    return target.config.effect === true
+    return "effect" in target.config && target.config.effect === true
       ? ["Effect generation is not implemented yet; this run emits the Promise/fetch client only."]
       : [];
   }
@@ -232,19 +237,19 @@ const writeSignalflareManifest = Effect.fn("SdkGenerator.writeManifest")(functio
 ) {
   const fs = yield* FileSystem.FileSystem;
   const manifest = {
-    schemaVersion: 1,
+    schemaVersion: SIGNALFLARE_MANIFEST_SCHEMA_VERSION,
     product: details.product,
     profiles: details.profiles,
     target: details.target,
     packageName: details.packageName,
     compilerVersion: COMPILER_VERSION,
-    openapiBaseline: "3.1.2",
-  };
+    openapiBaseline: OPENAPI_BASELINE,
+  } satisfies SignalflareSdkManifest;
+  const content = yield* Schema.encodeEffect(SignalflareSdkManifestJson)(manifest).pipe(
+    Effect.mapError((cause) => generationError("Encode Signalflare manifest", cause)),
+  );
   yield* fs
-    .writeFileString(
-      join(output, ".signalflare-sdk-manifest.json"),
-      `${JSON.stringify(manifest, null, 2)}\n`,
-    )
+    .writeFileString(join(output, ".signalflare-sdk-manifest.json"), `${content}\n`)
     .pipe(Effect.mapError((cause) => generationError("Write Signalflare manifest", cause)));
 });
 
@@ -257,12 +262,15 @@ function typeScriptEmitterOptions(
     authPlan: compileAuthPlan(document),
     defaultBaseUrl: firstServerUrl(document),
     compilerVersion: COMPILER_VERSION,
+    sdkVersion: GENERATED_SDK_VERSION,
     productId: config.product.id,
     packageName: packageIdentifier(target),
     clientClassName: `${toPascalCase(config.product.displayName)}Client`,
     adoptMissingServices: true,
   } as SignalflareTypeScriptEmitterOptions & { adoptMissingServices: boolean };
 }
+
+const oagenConsoleSemaphore = Semaphore.makeUnsafe(1);
 
 function runOagenGenerate(
   quiet: boolean,
@@ -272,17 +280,21 @@ function runOagenGenerate(
     try: task,
     catch: (cause) => generationError("Run Oagen emitter", cause),
   });
-  if (!quiet) return run;
+  const guardedRun = quiet
+    ? Effect.acquireUseRelease(
+        Effect.sync(() => {
+          const log = console.log;
+          console.log = () => {};
+          return log;
+        }),
+        () => run,
+        (log) => Effect.sync(() => void (console.log = log)),
+      )
+    : run;
 
-  return Effect.acquireUseRelease(
-    Effect.sync(() => {
-      const log = console.log;
-      console.log = () => {};
-      return log;
-    }),
-    () => run,
-    (log) => Effect.sync(() => void (console.log = log)),
-  );
+  // Oagen logs directly to the global console. Serialize both quiet and visible
+  // runs so a quiet invocation can never suppress an overlapping generation.
+  return oagenConsoleSemaphore.withPermit(guardedRun);
 }
 
 interface TargetGenerationContext {

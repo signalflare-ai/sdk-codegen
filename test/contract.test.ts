@@ -53,6 +53,22 @@ describe("contract validation", () => {
     expect(report.diagnostics).toEqual([]);
   });
 
+  test("reports Effect JSON Schema importer incompatibilities without blocking generation", async () => {
+    const document = await readFixture();
+    const schemas = (document.components as { schemas: Record<string, unknown> }).schemas;
+    schemas.UnsupportedByEffect = { not: { type: "string" } };
+
+    const report = validateProductContract(document, config);
+    expect(report.valid).toBe(true);
+    expect(report.diagnostics).toContainEqual(
+      expect.objectContaining({
+        severity: "warning",
+        code: "schema.effect-import.unsupported",
+        pointer: "#/components/schemas/UnsupportedByEffect",
+      }),
+    );
+  });
+
   test("loads and bundles the canary contract", async () => {
     const loaded = await Effect.runPromise(
       loadProductContract(fixturePath).pipe(Effect.provide(CompilerLive)),
