@@ -1,6 +1,6 @@
 # Real-contract pilot findings
 
-These are non-invasive compiler pilots over product-owned OpenAPI artifacts. Pilot overlays and generated trees live under `.tmp/`; product repositories were not modified.
+The onboarding overlays and generated SDK trees are non-invasive and live under `.tmp/`. One source-level follow-up has since landed in Atlas (`etl` commit `4ba83b0`): reusable Effect schemas now become named OpenAPI components. Geocode and Navigator remain overlay-only pilots.
 
 ## Geocode
 
@@ -63,7 +63,7 @@ The compiler reports these targets as incomplete. They should not be published u
 
 Source: `../etl/packages/types/generated/atlas.openapi.json`
 
-Atlas is the best strategic follow-up because it has an existing hand-written Promise/Effect client for parity comparison. A temporary overlay made the top-level contract policy-valid by:
+Atlas is the best strategic follow-up because it has an existing hand-written Promise/Effect client for parity comparison. Atlas currently pins an older Effect beta than sdk-codegen, so it uses its local `Schema.toJsonSchemaDocument` path rather than the shared current-Effect HttpApi adapter. A temporary overlay made the top-level contract policy-valid by:
 
 - upgrading to 3.1.2 and adding a server;
 - assigning access, pipeline, runner, admin, and preview metadata;
