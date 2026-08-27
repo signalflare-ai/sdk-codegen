@@ -71,15 +71,15 @@ Atlas is the best strategic follow-up because it has an existing hand-written Pr
 - promoting inline success envelopes to named schemas;
 - removing 11 path identifiers duplicated in request bodies.
 
-That selects 30 implemented operations. Oagen then produces nine unresolved references for nested inline object schemas. The compiler now rejects this invalid IR before writing a broken SDK. Representative missing types include freshness, lineage, claimed-run, and query-result objects.
+That selects 30 implemented operations. Atlas now annotates reusable Effect schemas with stable identifiers and promotes Effect `$defs` into OpenAPI components at generation time. This removed the original nine unresolved freshness, lineage, claimed-run, query-result, and commit-report references. The overlaid TypeScript pilot now emits 300 files with no generation warnings and passes strict TypeScript compilation.
 
-Additional API-quality findings from the raw emitter attempt:
+Remaining API-quality findings:
 
 - `Atlas…` component names are singularized by Oagen to `Atla…`;
 - dotted operation IDs produce redundant methods such as `client.catalog.catalogGet()`;
-- inline enums can lead the upstream Node emitter to export files it never generates.
+- the temporary onboarding overlay still owns Signalflare metadata, named success envelopes, and path/body deduplication.
 
-Atlas should therefore promote reusable nested objects/enums to named components and simplify component/operation naming before it becomes a publication pilot.
+Atlas is no longer blocked on nested model IR, but should simplify component/operation naming and move the remaining overlay policy into its canonical generator before publication.
 
 ## Navigator
 
