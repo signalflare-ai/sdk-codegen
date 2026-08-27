@@ -3,7 +3,8 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { generateConfiguredSdks } from "../src/index.js";
+import { Effect } from "effect";
+import { CompilerLive, generateConfiguredSdks } from "../src/index.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -81,11 +82,13 @@ async function typecheckGeneratedClient(output: string): Promise<void> {
 describe("SDK generation", () => {
   test("generates, typechecks, and authenticates a profile-filtered TypeScript client", async () => {
     const { configPath, output } = await createConfig();
-    const report = await generateConfiguredSdks({
-      configPath,
-      targets: ["typescript"],
-      quiet: true,
-    });
+    const report = await Effect.runPromise(
+      generateConfiguredSdks({
+        configPath,
+        targets: ["typescript"],
+        quiet: true,
+      }).pipe(Effect.provide(CompilerLive)),
+    );
 
     expect(report.targets).toHaveLength(1);
     expect(report.targets[0]?.operations).toBe(6);
@@ -153,11 +156,13 @@ describe("SDK generation", () => {
       }),
     ).rejects.toBeInstanceOf(sdk.MissingCredentialError);
 
-    const secondReport = await generateConfiguredSdks({
-      configPath,
-      targets: ["typescript"],
-      quiet: true,
-    });
+    const secondReport = await Effect.runPromise(
+      generateConfiguredSdks({
+        configPath,
+        targets: ["typescript"],
+        quiet: true,
+      }).pipe(Effect.provide(CompilerLive)),
+    );
     expect(secondReport.targets[0]?.files).toHaveLength(report.targets[0]?.files.length ?? 0);
 
     const oagenManifest = JSON.parse(

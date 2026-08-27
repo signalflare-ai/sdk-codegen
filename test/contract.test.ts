@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { Effect } from "effect";
 import {
   buildProfileContract,
+  CompilerLive,
   defineSdkConfig,
   loadProductContract,
   validateProductContract,
@@ -52,7 +54,9 @@ describe("contract validation", () => {
   });
 
   test("loads and bundles the canary contract", async () => {
-    const loaded = await loadProductContract(fixturePath);
+    const loaded = await Effect.runPromise(
+      loadProductContract(fixturePath).pipe(Effect.provide(CompilerLive)),
+    );
     expect(loaded.validation.valid).toBe(true);
     expect(loaded.document.openapi).toBe("3.1.2");
   });

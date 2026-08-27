@@ -1,4 +1,3 @@
-import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
@@ -8,7 +7,7 @@ import {
   createConfig,
   makeDocumentFromString,
 } from "@redocly/openapi-core";
-import { Effect } from "effect";
+import { Effect, FileSystem } from "effect";
 import { ContractLoadError } from "../core/errors.js";
 import { isRecord } from "../shared/object.js";
 import type { Diagnostic } from "./diagnostics.js";
@@ -32,41 +31,44 @@ function problemPointer(problem: unknown): string | undefined {
   return undefined;
 }
 
-export const loadProductContractEffect = Effect.fn("ProductContract.load")(function* (
+export const loadProductContract = Effect.fn("ProductContract.load")(function* (
   specPath: string,
   cwd = process.cwd(),
 ) {
   const absolutePath = resolve(cwd, specPath);
   const diagnostics: Diagnostic[] = [];
-  const content = yield* Effect.tryPromise({
-    try: () => readFile(absolutePath, "utf8"),
-    catch: (cause) =>
-      new ContractLoadError({
-        message: `Unable to read OpenAPI contract at ${absolutePath}.`,
-        validation: createValidationReport([
-          {
-            severity: "error",
-            code: "contract.file.unreadable",
-            message: `Unable to read contract: ${cause instanceof Error ? cause.message : String(cause)}`,
-            file: absolutePath,
-            pointer: "#",
-          },
-        ]),
-        cause,
-      }),
-  });
+  const fs = yield* FileSystem.FileSystem;
+  const content = yield* fs.readFileString(absolutePath).pipe(
+    Effect.mapError(
+      (cause) =>
+        new ContractLoadError({
+          message: `Unable to read OpenAPI contract at ${absolutePath}.`,
+          validation: createValidationReport([
+            {
+              severity: "error",
+              code: "contract.file.unreadable",
+              message: `Unable to read contract: ${cause.message}`,
+              file: absolutePath,
+              pointer: "#",
+            },
+          ]),
+          cause,
+        }),
+    ),
+  );
 
   const result = yield* Effect.tryPromise({
-    try: async () => {
+    try: () => {
       const source = makeDocumentFromString(content, pathToFileURL(absolutePath).href);
-      const config = await createConfig({});
-      return bundleDocument({
-        document: source,
-        config,
-        types: Oas3_1Types,
-        externalRefResolver: new BaseResolver(),
-        dereference: false,
-      });
+      return createConfig({}).then((config) =>
+        bundleDocument({
+          document: source,
+          config,
+          types: Oas3_1Types,
+          externalRefResolver: new BaseResolver(),
+          dereference: false,
+        }),
+      );
     },
     catch: (cause) =>
       new ContractLoadError({
@@ -121,11 +123,3 @@ export const loadProductContractEffect = Effect.fn("ProductContract.load")(funct
 
   return { document: parsed, path: absolutePath, validation } satisfies LoadedContract;
 });
-
-/** Promise compatibility boundary for consumers not using Effect. */
-export function loadProductContract(
-  specPath: string,
-  cwd = process.cwd(),
-): Promise<LoadedContract> {
-  return Effect.runPromise(loadProductContractEffect(specPath, cwd));
-}

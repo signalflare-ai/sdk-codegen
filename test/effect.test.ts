@@ -2,22 +2,23 @@ import { describe, expect, test } from "bun:test";
 import { resolve } from "node:path";
 import { Effect, Result } from "effect";
 import {
-  generateConfiguredSdksEffect,
-  loadProductContractEffect,
-  loadSdkConfigEffect,
+  CompilerLive,
+  generateConfiguredSdks,
+  loadProductContract,
+  loadSdkConfig,
 } from "../src/index.js";
 
 describe("Effect compiler core", () => {
   test("loads configuration through a named Effect workflow", async () => {
-    const loaded = await Effect.runPromise(
-      loadSdkConfigEffect(resolve("test/fixtures/sdk.config.ts")),
-    );
+    const loaded = await Effect.runPromise(loadSdkConfig(resolve("test/fixtures/sdk.config.ts")));
     expect(loaded.config.product.id).toBe("canary");
   });
 
   test("returns contract failures in the typed error channel", async () => {
     const result = await Effect.runPromise(
-      Effect.result(loadProductContractEffect("fixtures/contracts/missing.openapi.json")),
+      Effect.result(loadProductContract("fixtures/contracts/missing.openapi.json")).pipe(
+        Effect.provide(CompilerLive),
+      ),
     );
     expect(Result.isFailure(result)).toBe(true);
     if (Result.isFailure(result)) {
@@ -26,14 +27,14 @@ describe("Effect compiler core", () => {
     }
   });
 
-  test("exposes generation as an Effect while retaining Promise compatibility", async () => {
+  test("exposes generation as an Effect program", async () => {
     const report = await Effect.runPromise(
-      generateConfiguredSdksEffect({
+      generateConfiguredSdks({
         configPath: resolve("test/fixtures/sdk.config.ts"),
         targets: ["typescript"],
         dryRun: true,
         quiet: true,
-      }),
+      }).pipe(Effect.provide(CompilerLive)),
     );
     expect(report.targets[0]?.operations).toBe(6);
   });

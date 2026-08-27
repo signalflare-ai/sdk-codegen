@@ -1,14 +1,17 @@
 #!/usr/bin/env bun
 
-import { SdkConfigLoadError } from "../config/load.js";
+import { BunRuntime } from "@effect/platform-bun";
+import { Console, Effect } from "effect";
 import type { Diagnostic, ValidationReport } from "../contract/diagnostics.js";
+import { CliUsageError } from "../core/errors.js";
+import { CompilerLive } from "../core/layers.js";
 import {
-  GenerationError,
   TARGET_NAMES,
   generateConfiguredSdks,
+  type GenerationReport,
   type TargetName,
 } from "../generator/generate.js";
-import { runValidateCommand } from "./validate.js";
+import { runValidateCommand, type ValidateCommandResult } from "./validate.js";
 
 interface CliOptions {
   command?: string;
@@ -41,7 +44,7 @@ function isTargetName(value: string): value is TargetName {
   return (TARGET_NAMES as readonly string[]).includes(value);
 }
 
-function parseArguments(args: string[]): CliOptions {
+const parseArguments = Effect.fn("SdkCli.parseArguments")(function* (args: string[]) {
   const options: CliOptions = {
     configPath: "sdk.config.ts",
     json: false,
@@ -60,25 +63,32 @@ function parseArguments(args: string[]): CliOptions {
     else if (argument === "--dry-run") options.dryRun = true;
     else if (argument === "--format") {
       const format = remaining.shift();
-      if (format !== "json" && format !== "text") throw new Error("--format must be json or text.");
+      if (format !== "json" && format !== "text") {
+        return yield* new CliUsageError({ message: "--format must be json or text." });
+      }
       options.json = format === "json";
     } else if (argument === "--config") {
       const value = remaining.shift();
-      if (!value) throw new Error("--config requires a path.");
+      if (!value) return yield* new CliUsageError({ message: "--config requires a path." });
       options.configPath = value;
     } else if (argument === "--target") {
       const value = remaining.shift();
       if (!value || !isTargetName(value)) {
-        throw new Error(`--target must be one of: ${TARGET_NAMES.join(", ")}.`);
+        return yield* new CliUsageError({
+          message: `--target must be one of: ${TARGET_NAMES.join(", ")}.`,
+        });
       }
       options.targets.push(value);
     } else {
-      throw new Error(`Unknown argument: ${argument}`);
+      return yield* new CliUsageError({ message: `Unknown argument: ${argument}` });
     }
   }
 
+  if (options.command && options.command !== "validate" && options.command !== "generate") {
+    return yield* new CliUsageError({ message: `Unknown command: ${options.command}` });
+  }
   return options;
-}
+});
 
 function formatDiagnostic(diagnostic: Diagnostic): string {
   const location = [diagnostic.file, diagnostic.pointer].filter(Boolean).join("");
@@ -89,17 +99,21 @@ function formatDiagnostic(diagnostic: Diagnostic): string {
   return `${diagnostic.severity.toUpperCase()} ${diagnostic.code}${location ? ` ${location}` : ""}${operation}\n    ${diagnostic.message}${hint}`;
 }
 
-function printValidationFailure(
+const setExitCode = (code: number) =>
+  Effect.sync(() => {
+    process.exitCode = code;
+  });
+
+const printValidationFailure = Effect.fn("SdkCli.printValidationFailure")(function* (
   validation: ValidationReport,
-  json: boolean,
-  configPath: string,
-): void {
-  if (json) {
-    console.log(
+  options: CliOptions,
+) {
+  if (options.json) {
+    yield* Console.log(
       JSON.stringify(
         {
-          command: "generate",
-          config: configPath,
+          command: options.command,
+          config: options.configPath,
           report: validation,
         },
         null,
@@ -107,79 +121,95 @@ function printValidationFailure(
       ),
     );
   } else {
-    for (const diagnostic of validation.diagnostics) console.error(formatDiagnostic(diagnostic));
+    yield* Effect.forEach(validation.diagnostics, (diagnostic) =>
+      Console.error(formatDiagnostic(diagnostic)),
+    );
   }
-}
+});
 
-async function runValidate(options: CliOptions): Promise<void> {
-  const result = await runValidateCommand({ configPath: options.configPath });
+const printValidationResult = Effect.fn("SdkCli.printValidationResult")(function* (
+  result: ValidateCommandResult,
+  options: CliOptions,
+) {
   if (options.json) {
-    console.log(JSON.stringify(result, null, 2));
+    yield* Console.log(JSON.stringify(result, null, 2));
   } else {
-    for (const diagnostic of result.report.diagnostics) console.log(formatDiagnostic(diagnostic));
+    yield* Effect.forEach(result.report.diagnostics, (diagnostic) =>
+      Console.log(formatDiagnostic(diagnostic)),
+    );
     const { errors, warnings } = result.report.summary;
     const status = result.report.valid ? "valid" : "invalid";
-    console.log(`Contract ${status}: ${errors} error(s), ${warnings} warning(s).`);
+    yield* Console.log(`Contract ${status}: ${errors} error(s), ${warnings} warning(s).`);
   }
-  if (!result.report.valid) process.exitCode = 1;
-}
+  if (!result.report.valid) yield* setExitCode(1);
+});
 
-async function runGenerate(options: CliOptions): Promise<void> {
-  const result = await generateConfiguredSdks({
+const printGenerationResult = Effect.fn("SdkCli.printGenerationResult")(function* (
+  result: GenerationReport,
+  options: CliOptions,
+) {
+  if (options.json) {
+    yield* Console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+  yield* Effect.forEach(result.targets, (target) => {
+    const action = target.dryRun ? "Would generate" : "Generated";
+    return Effect.gen(function* () {
+      yield* Console.log(
+        `${action} ${target.files.length} ${target.target} files (${target.operations} operations) in ${target.output}`,
+      );
+      yield* Effect.forEach(target.warnings, (warning) => Console.warn(`WARNING ${warning}`));
+    });
+  });
+});
+
+const runCommand = Effect.fn("SdkCli.runCommand")(function* (options: CliOptions) {
+  if (options.help || !options.command) {
+    yield* Console.log(USAGE);
+    return;
+  }
+  if (options.command === "validate") {
+    const result = yield* runValidateCommand({ configPath: options.configPath });
+    yield* printValidationResult(result, options);
+    return;
+  }
+
+  const result = yield* generateConfiguredSdks({
     configPath: options.configPath,
     dryRun: options.dryRun,
     quiet: options.json,
     ...(options.targets.length === 0 ? {} : { targets: options.targets }),
   });
-  if (options.json) {
-    console.log(JSON.stringify(result, null, 2));
-    return;
-  }
+  yield* printGenerationResult(result, options);
+});
 
-  for (const target of result.targets) {
-    const action = target.dryRun ? "Would generate" : "Generated";
-    console.log(
-      `${action} ${target.files.length} ${target.target} files (${target.operations} operations) in ${target.output}`,
-    );
-    for (const warning of target.warnings) console.warn(`WARNING ${warning}`);
-  }
-}
+const program = parseArguments(process.argv.slice(2)).pipe(
+  Effect.flatMap((options) =>
+    runCommand(options).pipe(
+      Effect.catchTags({
+        SdkConfigLoadError: (error) =>
+          Effect.gen(function* () {
+            if (error.validation) yield* printValidationFailure(error.validation, options);
+            else yield* Console.error(error.message);
+            yield* setExitCode(1);
+          }),
+        GenerationError: (error) =>
+          Effect.gen(function* () {
+            if (error.validation) yield* printValidationFailure(error.validation, options);
+            else yield* Console.error(error.message);
+            yield* setExitCode(1);
+          }),
+      }),
+    ),
+  ),
+  Effect.catchTag("CliUsageError", (error) =>
+    Effect.gen(function* () {
+      yield* Console.error(error.message);
+      yield* Console.error(USAGE);
+      yield* setExitCode(2);
+    }),
+  ),
+  Effect.provide(CompilerLive),
+);
 
-async function main(): Promise<void> {
-  let options: CliOptions;
-  try {
-    options = parseArguments(process.argv.slice(2));
-  } catch (error) {
-    console.error(error instanceof Error ? error.message : String(error));
-    console.error(USAGE);
-    process.exitCode = 2;
-    return;
-  }
-
-  if (options.help || !options.command) {
-    console.log(USAGE);
-    return;
-  }
-  if (options.command !== "validate" && options.command !== "generate") {
-    console.error(`Unknown command: ${options.command}\n`);
-    console.error(USAGE);
-    process.exitCode = 2;
-    return;
-  }
-
-  try {
-    if (options.command === "validate") await runValidate(options);
-    else await runGenerate(options);
-  } catch (error) {
-    if (error instanceof SdkConfigLoadError && error.validation) {
-      printValidationFailure(error.validation, options.json, options.configPath);
-    } else if (error instanceof GenerationError && error.validation) {
-      printValidationFailure(error.validation, options.json, options.configPath);
-    } else {
-      console.error(error instanceof Error ? error.message : String(error));
-    }
-    process.exitCode = 1;
-  }
-}
-
-await main();
+BunRuntime.runMain(program);

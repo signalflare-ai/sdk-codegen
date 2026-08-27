@@ -37,3 +37,7 @@ export class GenerationError extends Schema.TaggedError<GenerationError>()("Gene
   validation: Schema.optionalKey(ValidationReportSchema),
   cause: Schema.optionalKey(Schema.Defect()),
 }) {}
+
+export class CliUsageError extends Schema.TaggedError<CliUsageError>()("CliUsageError", {
+  message: Schema.String,
+}) {}

@@ -1,20 +1,25 @@
 import { createHash } from "node:crypto";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { join, posix, resolve } from "node:path";
-import { generate, parseSpec, toPascalCase, type Emitter, type OperationHint } from "@workos/oagen";
+import {
+  generate,
+  parseSpec,
+  toPascalCase,
+  type Emitter,
+  type GeneratedFile,
+  type OperationHint,
+} from "@workos/oagen";
 import { goEmitter, pythonEmitter, rustEmitter } from "@workos/oagen-emitters";
-import { Effect } from "effect";
+import { Effect, FileSystem } from "effect";
 import { loadSdkConfig } from "../config/load.js";
 import type { BaseTargetConfig, SdkProfile, SignalflareSdkConfig } from "../config/schema.js";
 import { compileAuthPlan } from "../contract/auth.js";
 import type { Diagnostic, ValidationReport } from "../contract/diagnostics.js";
 import { createValidationReport } from "../contract/diagnostics.js";
-import { ContractLoadError, loadProductContract, type OpenApiDocument } from "../contract/load.js";
-import { GenerationError, SdkConfigLoadError } from "../core/errors.js";
+import { loadProductContract, type OpenApiDocument } from "../contract/load.js";
 import { normalizeContractForOagen } from "../contract/normalize.js";
-import { buildProfilesContract } from "../contract/profiles.js";
+import { buildProfilesContract, type ProfilesContractResult } from "../contract/profiles.js";
 import { validateProductContract } from "../contract/validate.js";
+import { GenerationError } from "../core/errors.js";
 import {
   signalflareTypeScriptEmitter,
   stripAutomaticPagination,
@@ -64,18 +69,11 @@ interface TargetDefinition {
   language: string;
 }
 
-async function withoutConsoleLogs<Result>(
-  quiet: boolean,
-  task: () => Promise<Result>,
-): Promise<Result> {
-  if (!quiet) return task();
-  const log = console.log;
-  console.log = () => {};
-  try {
-    return await task();
-  } finally {
-    console.log = log;
-  }
+function generationError(operation: string, cause: unknown): GenerationError {
+  return new GenerationError({
+    message: `${operation}: ${cause instanceof Error ? cause.message : String(cause)}`,
+    cause,
+  });
 }
 
 function validateGeneratedTypeScriptImports(
@@ -125,6 +123,25 @@ function targetDefinitions(config: SignalflareSdkConfig): TargetDefinition[] {
   });
 }
 
+const selectTargets = Effect.fn("SdkGenerator.selectTargets")(function* (
+  config: SignalflareSdkConfig,
+  requestedTargets: TargetName[] | undefined,
+) {
+  const definitions = targetDefinitions(config);
+  if (!requestedTargets || requestedTargets.length === 0) return definitions;
+  const requested = new Set(requestedTargets);
+  const selected = definitions.filter((target) => requested.has(target.name));
+  const missing = requestedTargets.filter(
+    (target) => !selected.some((entry) => entry.name === target),
+  );
+  if (missing.length > 0) {
+    return yield* new GenerationError({
+      message: `Requested target(s) are not configured and enabled: ${missing.join(", ")}.`,
+    });
+  }
+  return selected;
+});
+
 function operationHints(
   operations: Array<{ method: string; path: string; operationId: string }>,
 ): Record<string, OperationHint> {
@@ -170,7 +187,7 @@ function runtimeWarnings(target: TargetDefinition): string[] {
   ];
 }
 
-async function enrichOagenManifest(
+const enrichOagenManifest = Effect.fn("SdkGenerator.enrichManifest")(function* (
   output: string,
   details: {
     sdkName: string;
@@ -179,9 +196,16 @@ async function enrichOagenManifest(
     configSha: string;
     emitterVersion: string;
   },
-): Promise<void> {
+) {
+  const fs = yield* FileSystem.FileSystem;
   const path = join(output, ".oagen-manifest.json");
-  const parsed = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
+  const content = yield* fs
+    .readFileString(path)
+    .pipe(Effect.mapError((cause) => generationError("Read Oagen manifest", cause)));
+  const parsed = yield* Effect.try({
+    try: () => JSON.parse(content) as Record<string, unknown>,
+    catch: (cause) => generationError("Parse Oagen manifest", cause),
+  });
   const enriched = {
     ...parsed,
     sdkName: details.sdkName,
@@ -191,10 +215,12 @@ async function enrichOagenManifest(
     configSha: details.configSha,
     compatSchemaVersion: "1",
   };
-  await writeFile(path, `${JSON.stringify(enriched, null, 2)}\n`, "utf8");
-}
+  yield* fs
+    .writeFileString(path, `${JSON.stringify(enriched, null, 2)}\n`)
+    .pipe(Effect.mapError((cause) => generationError("Write Oagen manifest", cause)));
+});
 
-async function writeSignalflareManifest(
+const writeSignalflareManifest = Effect.fn("SdkGenerator.writeManifest")(function* (
   output: string,
   details: {
     product: string;
@@ -202,7 +228,8 @@ async function writeSignalflareManifest(
     target: TargetName;
     packageName: string;
   },
-): Promise<void> {
+) {
+  const fs = yield* FileSystem.FileSystem;
   const manifest = {
     schemaVersion: 1,
     product: details.product,
@@ -212,12 +239,13 @@ async function writeSignalflareManifest(
     compilerVersion: COMPILER_VERSION,
     openapiBaseline: "3.1.2",
   };
-  await writeFile(
-    join(output, ".signalflare-sdk-manifest.json"),
-    `${JSON.stringify(manifest, null, 2)}\n`,
-    "utf8",
-  );
-}
+  yield* fs
+    .writeFileString(
+      join(output, ".signalflare-sdk-manifest.json"),
+      `${JSON.stringify(manifest, null, 2)}\n`,
+    )
+    .pipe(Effect.mapError((cause) => generationError("Write Signalflare manifest", cause)));
+});
 
 function typeScriptEmitterOptions(
   config: SignalflareSdkConfig,
@@ -235,42 +263,145 @@ function typeScriptEmitterOptions(
   } as SignalflareTypeScriptEmitterOptions & { adoptMissingServices: boolean };
 }
 
-function selectedTargets(
-  config: SignalflareSdkConfig,
-  requestedTargets: TargetName[] | undefined,
-): TargetDefinition[] {
-  const definitions = targetDefinitions(config);
-  if (!requestedTargets || requestedTargets.length === 0) return definitions;
-  const requested = new Set(requestedTargets);
-  const selected = definitions.filter((target) => requested.has(target.name));
-  const missing = requestedTargets.filter(
-    (target) => !selected.some((entry) => entry.name === target),
+function runOagenGenerate(
+  quiet: boolean,
+  task: () => Promise<GeneratedFile[]>,
+): Effect.Effect<GeneratedFile[], GenerationError> {
+  const run = Effect.tryPromise({
+    try: task,
+    catch: (cause) => generationError("Run Oagen emitter", cause),
+  });
+  if (!quiet) return run;
+
+  return Effect.acquireUseRelease(
+    Effect.sync(() => {
+      const log = console.log;
+      console.log = () => {};
+      return log;
+    }),
+    () => run,
+    (log) => Effect.sync(() => void (console.log = log)),
   );
-  if (missing.length > 0) {
-    throw new GenerationError({
-      message: `Requested target(s) are not configured and enabled: ${missing.join(", ")}.`,
-    });
-  }
-  return selected;
 }
 
-async function generateConfiguredSdksPromise(
-  options: GenerateSdkOptions = {},
-): Promise<GenerationReport> {
-  const cwd = options.cwd ?? process.cwd();
-  const loadedConfig = await loadSdkConfig(options.configPath ?? "sdk.config.ts", cwd);
-  let loadedContract;
-  try {
-    loadedContract = await loadProductContract(
-      loadedConfig.config.contract.spec,
-      loadedConfig.directory,
-    );
-  } catch (error) {
-    if (error instanceof ContractLoadError) {
-      throw new GenerationError({ message: error.message, validation: error.validation });
-    }
-    throw error;
+interface TargetGenerationContext {
+  config: SignalflareSdkConfig;
+  profileContract: ProfilesContractResult;
+  target: TargetDefinition;
+  temporaryDirectory: string;
+  configSha: string;
+  specSha: string;
+  options: GenerateSdkOptions;
+}
+
+const generateTarget = Effect.fn("SdkGenerator.generateTarget")(function* (
+  context: TargetGenerationContext,
+) {
+  const { config, profileContract, target, temporaryDirectory, configSha, specSha, options } =
+    context;
+  const fs = yield* FileSystem.FileSystem;
+  const normalization = normalizeContractForOagen(profileContract.document);
+  const temporarySpec = join(temporaryDirectory, `${target.name}.openapi.json`);
+  yield* fs
+    .writeFileString(temporarySpec, `${JSON.stringify(normalization.document, null, 2)}\n`)
+    .pipe(Effect.mapError((cause) => generationError("Write temporary OpenAPI document", cause)));
+
+  const parsed = yield* Effect.tryPromise({
+    try: () => parseSpec(temporarySpec),
+    catch: (cause) => generationError("Parse Oagen IR", cause),
+  });
+  const ir = stripAutomaticPagination(parsed);
+  const irValidation = validateOagenIr(ir);
+  if (!irValidation.valid) {
+    return yield* new GenerationError({
+      message: `Oagen produced invalid IR for target ${target.name}.`,
+      validation: irValidation,
+    });
   }
+
+  const output = resolve(context.options.cwd ?? process.cwd(), target.config.output);
+  const emitterOptions =
+    target.name === "typescript"
+      ? typeScriptEmitterOptions(config, target, profileContract.document)
+      : undefined;
+  const files = yield* runOagenGenerate(options.quiet === true, () =>
+    generate(ir, target.emitter, {
+      namespace: toPascalCase(config.product.displayName),
+      outputDir: output,
+      ...(options.dryRun === undefined ? {} : { dryRun: options.dryRun }),
+      operationHints: operationHints(profileContract.operations),
+      ...(emitterOptions === undefined ? {} : { emitterOptions }),
+    }),
+  );
+
+  if (target.name === "typescript") {
+    const importValidation = validateGeneratedTypeScriptImports(files);
+    if (!importValidation.valid) {
+      return yield* new GenerationError({
+        message: "The generated TypeScript target contains unresolved local imports.",
+        validation: importValidation,
+      });
+    }
+  }
+
+  if (!options.dryRun) {
+    yield* enrichOagenManifest(output, {
+      sdkName: packageIdentifier(target),
+      specPath: config.contract.spec,
+      specSha,
+      configSha,
+      emitterVersion:
+        target.name === "typescript"
+          ? `@signalflare-ai/typescript-wrapper+@workos/oagen-emitters@${OAGEN_EMITTERS_VERSION}`
+          : OAGEN_EMITTERS_VERSION,
+    });
+    yield* writeSignalflareManifest(output, {
+      product: config.product.id,
+      profiles: profileContract.profiles,
+      target: target.name,
+      packageName: packageIdentifier(target),
+    });
+  }
+
+  return {
+    target: target.name,
+    language: target.language,
+    output,
+    profiles: profileContract.profiles,
+    operations: profileContract.operations.length,
+    files: [...new Set(files.map((file) => file.path))].sort(),
+    warnings: [
+      ...runtimeWarnings(target),
+      ...normalization.transforms,
+      ...profileContract.validation.diagnostics
+        .filter(
+          (diagnostic): diagnostic is Diagnostic & { severity: "warning" } =>
+            diagnostic.severity === "warning",
+        )
+        .map((diagnostic) => diagnostic.message),
+    ],
+    dryRun: options.dryRun === true,
+  } satisfies GeneratedTargetReport;
+});
+
+export const generateConfiguredSdks = Effect.fn("SdkGenerator.generate")(function* (
+  options: GenerateSdkOptions = {},
+) {
+  const cwd = options.cwd ?? process.cwd();
+  const loadedConfig = yield* loadSdkConfig(options.configPath ?? "sdk.config.ts", cwd);
+  const loadedContract = yield* loadProductContract(
+    loadedConfig.config.contract.spec,
+    loadedConfig.directory,
+  ).pipe(
+    Effect.mapError(
+      (error) =>
+        new GenerationError({
+          message: error.message,
+          validation: error.validation,
+          cause: error,
+        }),
+    ),
+  );
 
   const contractValidation = validateProductContract(loadedContract.document, loadedConfig.config, {
     file: loadedContract.path,
@@ -281,151 +412,53 @@ async function generateConfiguredSdksPromise(
     ...contractValidation.diagnostics,
   ]);
   if (!validation.valid) {
-    throw new GenerationError({
+    return yield* new GenerationError({
       message: "SDK generation stopped because contract validation failed.",
       validation,
     });
   }
 
-  const temporaryDirectory = await mkdtemp(join(tmpdir(), "signalflare-sdk-"));
-  const reports: GeneratedTargetReport[] = [];
-  const configSha = sha256(JSON.stringify(loadedConfig.config));
-  const specSha = sha256(JSON.stringify(loadedContract.document));
+  const targets = yield* selectTargets(loadedConfig.config, options.targets);
+  const fs = yield* FileSystem.FileSystem;
+  return yield* Effect.scoped(
+    Effect.gen(function* () {
+      const temporaryDirectory = yield* fs
+        .makeTempDirectoryScoped({ prefix: "signalflare-sdk-" })
+        .pipe(Effect.mapError((cause) => generationError("Create temporary directory", cause)));
+      const configSha = sha256(JSON.stringify(loadedConfig.config));
+      const specSha = sha256(JSON.stringify(loadedContract.document));
 
-  try {
-    for (const target of selectedTargets(loadedConfig.config, options.targets)) {
-      const profileContract = buildProfilesContract(
-        loadedContract.document,
-        loadedConfig.config,
-        target.config.profiles,
-      );
-      if (!profileContract.validation.valid) {
-        throw new GenerationError({
-          message: `Unable to build profiles for target ${target.name}.`,
-          validation: profileContract.validation,
-        });
-      }
-
-      const normalization = normalizeContractForOagen(profileContract.document);
-      const temporarySpec = join(temporaryDirectory, `${target.name}.openapi.json`);
-      await writeFile(
-        temporarySpec,
-        `${JSON.stringify(normalization.document, null, 2)}\n`,
-        "utf8",
-      );
-      const ir = stripAutomaticPagination(await parseSpec(temporarySpec));
-      const irValidation = validateOagenIr(ir);
-      if (!irValidation.valid) {
-        throw new GenerationError({
-          message: `Oagen produced invalid IR for target ${target.name}.`,
-          validation: irValidation,
-        });
-      }
-
-      const output = resolve(loadedConfig.directory, target.config.output);
-      const emitterOptions =
-        target.name === "typescript"
-          ? typeScriptEmitterOptions(loadedConfig.config, target, profileContract.document)
-          : undefined;
-      const files = await withoutConsoleLogs(options.quiet === true, () =>
-        generate(ir, target.emitter, {
-          namespace: toPascalCase(loadedConfig.config.product.displayName),
-          outputDir: output,
-          ...(options.dryRun === undefined ? {} : { dryRun: options.dryRun }),
-          operationHints: operationHints(profileContract.operations),
-          ...(emitterOptions === undefined ? {} : { emitterOptions }),
-        }),
-      );
-
-      if (target.name === "typescript") {
-        const importValidation = validateGeneratedTypeScriptImports(files);
-        if (!importValidation.valid) {
-          throw new GenerationError({
-            message: "The generated TypeScript target contains unresolved local imports.",
-            validation: importValidation,
+      const reports = yield* Effect.forEach(targets, (target) => {
+        const profileContract = buildProfilesContract(
+          loadedContract.document,
+          loadedConfig.config,
+          target.config.profiles,
+        );
+        if (!profileContract.validation.valid) {
+          return new GenerationError({
+            message: `Unable to build profiles for target ${target.name}.`,
+            validation: profileContract.validation,
           });
         }
-      }
-
-      if (!options.dryRun) {
-        await enrichOagenManifest(output, {
-          sdkName: packageIdentifier(target),
-          specPath: loadedConfig.config.contract.spec,
-          specSha,
+        return generateTarget({
+          config: loadedConfig.config,
+          profileContract,
+          target,
+          temporaryDirectory,
           configSha,
-          emitterVersion:
-            target.name === "typescript"
-              ? `@signalflare-ai/typescript-wrapper+@workos/oagen-emitters@${OAGEN_EMITTERS_VERSION}`
-              : OAGEN_EMITTERS_VERSION,
+          specSha,
+          options: { ...options, cwd: loadedConfig.directory },
         });
-        await writeSignalflareManifest(output, {
-          product: loadedConfig.config.product.id,
-          profiles: profileContract.profiles,
-          target: target.name,
-          packageName: packageIdentifier(target),
-        });
-      }
-
-      reports.push({
-        target: target.name,
-        language: target.language,
-        output,
-        profiles: profileContract.profiles,
-        operations: profileContract.operations.length,
-        files: [...new Set(files.map((file) => file.path))].sort(),
-        warnings: [
-          ...runtimeWarnings(target),
-          ...normalization.transforms,
-          ...profileContract.validation.diagnostics
-            .filter(
-              (diagnostic): diagnostic is Diagnostic & { severity: "warning" } =>
-                diagnostic.severity === "warning",
-            )
-            .map((diagnostic) => diagnostic.message),
-        ],
-        dryRun: options.dryRun === true,
       });
-    }
-  } finally {
-    await rm(temporaryDirectory, { recursive: true, force: true });
-  }
 
-  return {
-    command: "generate",
-    config: loadedConfig.path,
-    contract: loadedContract.path,
-    compilerVersion: COMPILER_VERSION,
-    targets: reports,
-    validation,
-  };
-}
-
-function generationFailure(cause: unknown): GenerationError | SdkConfigLoadError {
-  if (cause instanceof GenerationError || cause instanceof SdkConfigLoadError) return cause;
-  if (cause instanceof ContractLoadError) {
-    return new GenerationError({
-      message: cause.message,
-      validation: cause.validation,
-      cause,
-    });
-  }
-  return new GenerationError({
-    message: cause instanceof Error ? cause.message : String(cause),
-    cause,
-  });
-}
-
-export const generateConfiguredSdksEffect = Effect.fn("SdkGenerator.generate")(
-  (options: GenerateSdkOptions = {}) =>
-    Effect.tryPromise({
-      try: () => generateConfiguredSdksPromise(options),
-      catch: generationFailure,
+      return {
+        command: "generate",
+        config: loadedConfig.path,
+        contract: loadedContract.path,
+        compilerVersion: COMPILER_VERSION,
+        targets: reports,
+        validation,
+      } satisfies GenerationReport;
     }),
-);
-
-/** Promise compatibility boundary for consumers not using Effect. */
-export function generateConfiguredSdks(
-  options: GenerateSdkOptions = {},
-): Promise<GenerationReport> {
-  return Effect.runPromise(generateConfiguredSdksEffect(options));
-}
+  );
+});

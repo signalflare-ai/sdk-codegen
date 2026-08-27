@@ -42,14 +42,15 @@ full standalone runtimes for those languages remain future slices.
 ## Compiler runtime
 
 Compiler boundary workflows use Effect v4. Configuration and contract loading,
-validation-command composition, and the public generation entry point expose
-named Effects with schema-backed tagged errors. Promise APIs remain thin
-compatibility adapters for conventional consumers and the existing CLI.
+validation-command composition, generation, filesystem access, manifests, and
+the CLI expose named Effects with schema-backed tagged errors. The Bun CLI is
+the runtime boundary and provides the live compiler layer; compiler APIs do not
+expose Promise compatibility wrappers.
 
 Pure deterministic transforms—metadata parsing, profile selection, schema
 pruning, auth-plan compilation, and IR validation—remain ordinary synchronous
-functions. Oagen generation/writing is being migrated behind Effect services in
-a follow-up slice; it currently runs inside the typed generation boundary.
+functions. Foreign Promise/throwing APIs from Redocly and Oagen are isolated in
+`Effect.tryPromise` adapter boundaries.
 
 ## Authentication boundary
 

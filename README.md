@@ -30,8 +30,8 @@ The compiler now provides:
 - typed `sdk.config.ts` manifests;
 - OpenAPI loading, reference bundling, and contract validation;
 - deterministic multi-profile selection with preview exclusion;
-- Effect v4-native config, contract, and validation workflows plus a typed generation entry point;
-- Promise compatibility adapters over the Effect workflows;
+- Effect v4-native config, contract, validation, generation, filesystem, and CLI workflows;
+- schema-backed typed failures and a Bun Effect runtime/layer boundary;
 - `signalflare-sdk validate` and `signalflare-sdk generate`;
 - Oagen generation, ownership manifests, provenance, and safe pruning;
 - a generated TypeScript Promise/fetch client with structured errors;

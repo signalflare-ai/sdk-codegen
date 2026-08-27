@@ -15,7 +15,7 @@ export interface LoadedSdkConfig {
 
 export { SdkConfigLoadError } from "../core/errors.js";
 
-export const loadSdkConfigEffect = Effect.fn("SdkConfig.load")(function* (
+export const loadSdkConfig = Effect.fn("SdkConfig.load")(function* (
   configPath = "sdk.config.ts",
   cwd = process.cwd(),
 ) {
@@ -48,11 +48,3 @@ export const loadSdkConfigEffect = Effect.fn("SdkConfig.load")(function* (
     validation,
   } satisfies LoadedSdkConfig;
 });
-
-/** Promise compatibility boundary for consumers not using Effect. */
-export function loadSdkConfig(
-  configPath = "sdk.config.ts",
-  cwd = process.cwd(),
-): Promise<LoadedSdkConfig> {
-  return Effect.runPromise(loadSdkConfigEffect(configPath, cwd));
-}
