@@ -8,9 +8,11 @@ import {
   createConfig,
   makeDocumentFromString,
 } from "@redocly/openapi-core";
+import { Effect } from "effect";
+import { ContractLoadError } from "../core/errors.js";
+import { isRecord } from "../shared/object.js";
 import type { Diagnostic } from "./diagnostics.js";
 import { createValidationReport, type ValidationReport } from "./diagnostics.js";
-import { isRecord } from "../shared/object.js";
 
 export type OpenApiDocument = Record<string, unknown>;
 
@@ -20,16 +22,7 @@ export interface LoadedContract {
   validation: ValidationReport;
 }
 
-export class ContractLoadError extends Error {
-  override readonly name = "ContractLoadError";
-
-  constructor(
-    message: string,
-    readonly validation: ValidationReport,
-  ) {
-    super(message);
-  }
-}
+export { ContractLoadError } from "../core/errors.js";
 
 function problemPointer(problem: unknown): string | undefined {
   if (!isRecord(problem) || !Array.isArray(problem.location)) return undefined;
@@ -39,60 +32,82 @@ function problemPointer(problem: unknown): string | undefined {
   return undefined;
 }
 
-export async function loadProductContract(
+export const loadProductContractEffect = Effect.fn("ProductContract.load")(function* (
   specPath: string,
   cwd = process.cwd(),
-): Promise<LoadedContract> {
+) {
   const absolutePath = resolve(cwd, specPath);
   const diagnostics: Diagnostic[] = [];
-  let content: string;
+  const content = yield* Effect.tryPromise({
+    try: () => readFile(absolutePath, "utf8"),
+    catch: (cause) =>
+      new ContractLoadError({
+        message: `Unable to read OpenAPI contract at ${absolutePath}.`,
+        validation: createValidationReport([
+          {
+            severity: "error",
+            code: "contract.file.unreadable",
+            message: `Unable to read contract: ${cause instanceof Error ? cause.message : String(cause)}`,
+            file: absolutePath,
+            pointer: "#",
+          },
+        ]),
+        cause,
+      }),
+  });
 
-  try {
-    content = await readFile(absolutePath, "utf8");
-  } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
-    const report = createValidationReport([
-      {
-        severity: "error",
-        code: "contract.file.unreadable",
-        message: `Unable to read contract: ${detail}`,
-        file: absolutePath,
-        pointer: "#",
-      },
-    ]);
-    throw new ContractLoadError(`Unable to read OpenAPI contract at ${absolutePath}.`, report);
+  const result = yield* Effect.tryPromise({
+    try: async () => {
+      const source = makeDocumentFromString(content, pathToFileURL(absolutePath).href);
+      const config = await createConfig({});
+      return bundleDocument({
+        document: source,
+        config,
+        types: Oas3_1Types,
+        externalRefResolver: new BaseResolver(),
+        dereference: false,
+      });
+    },
+    catch: (cause) =>
+      new ContractLoadError({
+        message: `OpenAPI parsing failed for ${absolutePath}.`,
+        validation: createValidationReport([
+          {
+            severity: "error",
+            code: "contract.parse.failed",
+            message: cause instanceof Error ? cause.message : String(cause),
+            file: absolutePath,
+            pointer: "#",
+          },
+        ]),
+        cause,
+      }),
+  });
+
+  for (const problem of result.problems) {
+    const pointer = problemPointer(problem);
+    diagnostics.push({
+      severity: problem.severity === "error" ? "error" : "warning",
+      code: `openapi.${problem.ruleId ?? "parse"}`,
+      message: problem.message,
+      file: absolutePath,
+      ...(pointer === undefined ? {} : { pointer }),
+    });
   }
 
-  try {
-    const source = makeDocumentFromString(content, pathToFileURL(absolutePath).href);
-    const config = await createConfig({});
-    const result = await bundleDocument({
-      document: source,
-      config,
-      types: Oas3_1Types,
-      externalRefResolver: new BaseResolver(),
-      dereference: false,
+  const validation = createValidationReport(diagnostics);
+  if (!validation.valid) {
+    return yield* new ContractLoadError({
+      message: `OpenAPI parsing failed for ${absolutePath}.`,
+      validation,
     });
+  }
 
-    for (const problem of result.problems) {
-      const pointer = problemPointer(problem);
-      diagnostics.push({
-        severity: problem.severity === "error" ? "error" : "warning",
-        code: `openapi.${problem.ruleId ?? "parse"}`,
-        message: problem.message,
-        file: absolutePath,
-        ...(pointer === undefined ? {} : { pointer }),
-      });
-    }
-
-    const validation = createValidationReport(diagnostics);
-    if (!validation.valid) {
-      throw new ContractLoadError(`OpenAPI parsing failed for ${absolutePath}.`, validation);
-    }
-
-    const parsed = result.bundle.parsed;
-    if (!isRecord(parsed)) {
-      const invalid = createValidationReport([
+  const parsed = result.bundle.parsed;
+  if (!isRecord(parsed)) {
+    return yield* new ContractLoadError({
+      message: `OpenAPI document at ${absolutePath} is not an object.`,
+      validation: createValidationReport([
         {
           severity: "error",
           code: "contract.document.invalid",
@@ -100,23 +115,17 @@ export async function loadProductContract(
           file: absolutePath,
           pointer: "#",
         },
-      ]);
-      throw new ContractLoadError(`OpenAPI document at ${absolutePath} is not an object.`, invalid);
-    }
-
-    return { document: parsed, path: absolutePath, validation };
-  } catch (error) {
-    if (error instanceof ContractLoadError) throw error;
-    const detail = error instanceof Error ? error.message : String(error);
-    const report = createValidationReport([
-      {
-        severity: "error",
-        code: "contract.parse.failed",
-        message: detail,
-        file: absolutePath,
-        pointer: "#",
-      },
-    ]);
-    throw new ContractLoadError(`OpenAPI parsing failed for ${absolutePath}.`, report);
+      ]),
+    });
   }
+
+  return { document: parsed, path: absolutePath, validation } satisfies LoadedContract;
+});
+
+/** Promise compatibility boundary for consumers not using Effect. */
+export function loadProductContract(
+  specPath: string,
+  cwd = process.cwd(),
+): Promise<LoadedContract> {
+  return Effect.runPromise(loadProductContractEffect(specPath, cwd));
 }

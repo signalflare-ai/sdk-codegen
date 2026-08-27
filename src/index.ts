@@ -1,5 +1,5 @@
 export { defineSdkConfig } from "./config/define.js";
-export { loadSdkConfig, SdkConfigLoadError } from "./config/load.js";
+export { loadSdkConfig, loadSdkConfigEffect, SdkConfigLoadError } from "./config/load.js";
 export {
   SDK_AUDIENCES,
   SDK_VISIBILITIES,
@@ -48,6 +48,7 @@ export {
 export {
   ContractLoadError,
   loadProductContract,
+  loadProductContractEffect,
   type LoadedContract,
   type OpenApiDocument,
 } from "./contract/load.js";
@@ -69,10 +70,17 @@ export {
   OAGEN_EMITTERS_VERSION,
   TARGET_NAMES,
   generateConfiguredSdks,
+  generateConfiguredSdksEffect,
   type GenerateSdkOptions,
   type GeneratedTargetReport,
   type GenerationReport,
   type TargetName,
 } from "./generator/generate.js";
+export {
+  runValidateCommand,
+  runValidateCommandEffect,
+  type ValidateCommandOptions,
+  type ValidateCommandResult,
+} from "./cli/validate.js";
 export { signalflareOagenPlugin } from "./oagen/plugin.js";
 export { validateOagenIr } from "./oagen/validate-ir.js";

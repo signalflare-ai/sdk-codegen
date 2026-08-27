@@ -4,12 +4,14 @@ import { tmpdir } from "node:os";
 import { join, posix, resolve } from "node:path";
 import { generate, parseSpec, toPascalCase, type Emitter, type OperationHint } from "@workos/oagen";
 import { goEmitter, pythonEmitter, rustEmitter } from "@workos/oagen-emitters";
+import { Effect } from "effect";
 import { loadSdkConfig } from "../config/load.js";
 import type { BaseTargetConfig, SdkProfile, SignalflareSdkConfig } from "../config/schema.js";
 import { compileAuthPlan } from "../contract/auth.js";
 import type { Diagnostic, ValidationReport } from "../contract/diagnostics.js";
 import { createValidationReport } from "../contract/diagnostics.js";
 import { ContractLoadError, loadProductContract, type OpenApiDocument } from "../contract/load.js";
+import { GenerationError, SdkConfigLoadError } from "../core/errors.js";
 import { normalizeContractForOagen } from "../contract/normalize.js";
 import { buildProfilesContract } from "../contract/profiles.js";
 import { validateProductContract } from "../contract/validate.js";
@@ -53,16 +55,7 @@ export interface GenerationReport {
   validation: ValidationReport;
 }
 
-export class GenerationError extends Error {
-  override readonly name = "GenerationError";
-
-  constructor(
-    message: string,
-    readonly validation?: ValidationReport,
-  ) {
-    super(message);
-  }
-}
+export { GenerationError } from "../core/errors.js";
 
 interface TargetDefinition {
   name: TargetName;
@@ -254,14 +247,14 @@ function selectedTargets(
     (target) => !selected.some((entry) => entry.name === target),
   );
   if (missing.length > 0) {
-    throw new GenerationError(
-      `Requested target(s) are not configured and enabled: ${missing.join(", ")}.`,
-    );
+    throw new GenerationError({
+      message: `Requested target(s) are not configured and enabled: ${missing.join(", ")}.`,
+    });
   }
   return selected;
 }
 
-export async function generateConfiguredSdks(
+async function generateConfiguredSdksPromise(
   options: GenerateSdkOptions = {},
 ): Promise<GenerationReport> {
   const cwd = options.cwd ?? process.cwd();
@@ -274,7 +267,7 @@ export async function generateConfiguredSdks(
     );
   } catch (error) {
     if (error instanceof ContractLoadError) {
-      throw new GenerationError(error.message, error.validation);
+      throw new GenerationError({ message: error.message, validation: error.validation });
     }
     throw error;
   }
@@ -288,10 +281,10 @@ export async function generateConfiguredSdks(
     ...contractValidation.diagnostics,
   ]);
   if (!validation.valid) {
-    throw new GenerationError(
-      "SDK generation stopped because contract validation failed.",
+    throw new GenerationError({
+      message: "SDK generation stopped because contract validation failed.",
       validation,
-    );
+    });
   }
 
   const temporaryDirectory = await mkdtemp(join(tmpdir(), "signalflare-sdk-"));
@@ -307,10 +300,10 @@ export async function generateConfiguredSdks(
         target.config.profiles,
       );
       if (!profileContract.validation.valid) {
-        throw new GenerationError(
-          `Unable to build profiles for target ${target.name}.`,
-          profileContract.validation,
-        );
+        throw new GenerationError({
+          message: `Unable to build profiles for target ${target.name}.`,
+          validation: profileContract.validation,
+        });
       }
 
       const normalization = normalizeContractForOagen(profileContract.document);
@@ -323,10 +316,10 @@ export async function generateConfiguredSdks(
       const ir = stripAutomaticPagination(await parseSpec(temporarySpec));
       const irValidation = validateOagenIr(ir);
       if (!irValidation.valid) {
-        throw new GenerationError(
-          `Oagen produced invalid IR for target ${target.name}.`,
-          irValidation,
-        );
+        throw new GenerationError({
+          message: `Oagen produced invalid IR for target ${target.name}.`,
+          validation: irValidation,
+        });
       }
 
       const output = resolve(loadedConfig.directory, target.config.output);
@@ -347,10 +340,10 @@ export async function generateConfiguredSdks(
       if (target.name === "typescript") {
         const importValidation = validateGeneratedTypeScriptImports(files);
         if (!importValidation.valid) {
-          throw new GenerationError(
-            "The generated TypeScript target contains unresolved local imports.",
-            importValidation,
-          );
+          throw new GenerationError({
+            message: "The generated TypeScript target contains unresolved local imports.",
+            validation: importValidation,
+          });
         }
       }
 
@@ -405,4 +398,34 @@ export async function generateConfiguredSdks(
     targets: reports,
     validation,
   };
+}
+
+function generationFailure(cause: unknown): GenerationError | SdkConfigLoadError {
+  if (cause instanceof GenerationError || cause instanceof SdkConfigLoadError) return cause;
+  if (cause instanceof ContractLoadError) {
+    return new GenerationError({
+      message: cause.message,
+      validation: cause.validation,
+      cause,
+    });
+  }
+  return new GenerationError({
+    message: cause instanceof Error ? cause.message : String(cause),
+    cause,
+  });
+}
+
+export const generateConfiguredSdksEffect = Effect.fn("SdkGenerator.generate")(
+  (options: GenerateSdkOptions = {}) =>
+    Effect.tryPromise({
+      try: () => generateConfiguredSdksPromise(options),
+      catch: generationFailure,
+    }),
+);
+
+/** Promise compatibility boundary for consumers not using Effect. */
+export function generateConfiguredSdks(
+  options: GenerateSdkOptions = {},
+): Promise<GenerationReport> {
+  return Effect.runPromise(generateConfiguredSdksEffect(options));
 }

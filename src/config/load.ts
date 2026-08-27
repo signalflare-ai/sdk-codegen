@@ -1,6 +1,8 @@
-import { resolve, dirname } from "node:path";
+import { dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { Effect } from "effect";
 import type { ValidationReport } from "../contract/diagnostics.js";
+import { SdkConfigLoadError } from "../core/errors.js";
 import type { SignalflareSdkConfig } from "./schema.js";
 import { validateSdkConfig } from "./validate.js";
 
@@ -11,30 +13,21 @@ export interface LoadedSdkConfig {
   validation: ValidationReport;
 }
 
-export class SdkConfigLoadError extends Error {
-  override readonly name = "SdkConfigLoadError";
+export { SdkConfigLoadError } from "../core/errors.js";
 
-  constructor(
-    message: string,
-    readonly validation?: ValidationReport,
-  ) {
-    super(message);
-  }
-}
-
-export async function loadSdkConfig(
+export const loadSdkConfigEffect = Effect.fn("SdkConfig.load")(function* (
   configPath = "sdk.config.ts",
   cwd = process.cwd(),
-): Promise<LoadedSdkConfig> {
+) {
   const absolutePath = resolve(cwd, configPath);
-  let imported: unknown;
-
-  try {
-    imported = await import(pathToFileURL(absolutePath).href);
-  } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
-    throw new SdkConfigLoadError(`Failed to load SDK config at ${absolutePath}: ${detail}`);
-  }
+  const imported = yield* Effect.tryPromise({
+    try: () => import(pathToFileURL(absolutePath).href) as Promise<unknown>,
+    catch: (cause) =>
+      new SdkConfigLoadError({
+        message: `Failed to load SDK config at ${absolutePath}: ${cause instanceof Error ? cause.message : String(cause)}`,
+        cause,
+      }),
+  });
 
   const value =
     typeof imported === "object" && imported !== null && "default" in imported
@@ -42,7 +35,10 @@ export async function loadSdkConfig(
       : imported;
   const validation = validateSdkConfig(value);
   if (!validation.valid) {
-    throw new SdkConfigLoadError(`Invalid SDK config at ${absolutePath}.`, validation);
+    return yield* new SdkConfigLoadError({
+      message: `Invalid SDK config at ${absolutePath}.`,
+      validation,
+    });
   }
 
   return {
@@ -50,5 +46,13 @@ export async function loadSdkConfig(
     path: absolutePath,
     directory: dirname(absolutePath),
     validation,
-  };
+  } satisfies LoadedSdkConfig;
+});
+
+/** Promise compatibility boundary for consumers not using Effect. */
+export function loadSdkConfig(
+  configPath = "sdk.config.ts",
+  cwd = process.cwd(),
+): Promise<LoadedSdkConfig> {
+  return Effect.runPromise(loadSdkConfigEffect(configPath, cwd));
 }

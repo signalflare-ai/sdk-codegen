@@ -39,6 +39,18 @@ The upstream Python, Go, and Rust emitters are orchestrated as spec-derived core
 generators, but still rely on product-owned transport/error runtimes. Effect and
 full standalone runtimes for those languages remain future slices.
 
+## Compiler runtime
+
+Compiler boundary workflows use Effect v4. Configuration and contract loading,
+validation-command composition, and the public generation entry point expose
+named Effects with schema-backed tagged errors. Promise APIs remain thin
+compatibility adapters for conventional consumers and the existing CLI.
+
+Pure deterministic transforms—metadata parsing, profile selection, schema
+pruning, auth-plan compilation, and IR validation—remain ordinary synchronous
+functions. Oagen generation/writing is being migrated behind Effect services in
+a follow-up slice; it currently runs inside the typed generation boundary.
+
 ## Authentication boundary
 
 The compiler preserves named OpenAPI security schemes and each operation's

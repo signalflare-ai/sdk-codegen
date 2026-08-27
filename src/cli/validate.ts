@@ -1,8 +1,9 @@
 import { resolve } from "node:path";
-import { loadSdkConfig } from "../config/load.js";
+import { Effect, Result } from "effect";
+import { loadSdkConfigEffect } from "../config/load.js";
 import type { Diagnostic, ValidationReport } from "../contract/diagnostics.js";
 import { createValidationReport } from "../contract/diagnostics.js";
-import { ContractLoadError, loadProductContract } from "../contract/load.js";
+import { loadProductContractEffect } from "../contract/load.js";
 import { validateProductContract } from "../contract/validate.js";
 
 export interface ValidateCommandOptions {
@@ -17,28 +18,24 @@ export interface ValidateCommandResult {
   report: ValidationReport;
 }
 
-export async function runValidateCommand(
+export const runValidateCommandEffect = Effect.fn("SdkCli.validate")(function* (
   options: ValidateCommandOptions,
-): Promise<ValidateCommandResult> {
+) {
   const cwd = options.cwd ?? process.cwd();
-  const loadedConfig = await loadSdkConfig(options.configPath, cwd);
+  const loadedConfig = yield* loadSdkConfigEffect(options.configPath, cwd);
   const contractPath = resolve(loadedConfig.directory, loadedConfig.config.contract.spec);
-  let loadedContract;
+  const contractResult = yield* Effect.result(loadProductContractEffect(contractPath));
 
-  try {
-    loadedContract = await loadProductContract(contractPath);
-  } catch (error) {
-    if (error instanceof ContractLoadError) {
-      return {
-        command: "validate",
-        config: loadedConfig.path,
-        contract: contractPath,
-        report: error.validation,
-      };
-    }
-    throw error;
+  if (Result.isFailure(contractResult)) {
+    return {
+      command: "validate",
+      config: loadedConfig.path,
+      contract: contractPath,
+      report: contractResult.failure.validation,
+    } satisfies ValidateCommandResult;
   }
 
+  const loadedContract = contractResult.success;
   const contractValidation = validateProductContract(loadedContract.document, loadedConfig.config, {
     file: loadedContract.path,
   });
@@ -53,5 +50,12 @@ export async function runValidateCommand(
     config: loadedConfig.path,
     contract: loadedContract.path,
     report: createValidationReport(diagnostics),
-  };
+  } satisfies ValidateCommandResult;
+});
+
+/** Promise compatibility boundary for consumers not using Effect. */
+export function runValidateCommand(
+  options: ValidateCommandOptions,
+): Promise<ValidateCommandResult> {
+  return Effect.runPromise(runValidateCommandEffect(options));
 }

@@ -33,7 +33,8 @@
   "dependencies": {
     "@redocly/openapi-core": "2.47.0",
     "@workos/oagen": "0.29.2",
-    "@workos/oagen-emitters": "0.24.4"
+    "@workos/oagen-emitters": "0.24.4",
+    "effect": "4.0.0-rc.112"
   },
   "devDependencies": {
     "@socketsecurity/bun-security-scanner": "1.1.2",
