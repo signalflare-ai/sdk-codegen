@@ -1,0 +1,42 @@
+import { expect, test } from "bun:test";
+import { resolve } from "node:path";
+import { parseSpec } from "@workos/oagen";
+import packageManifest from "../package.json" with { type: "json" };
+import { OAGEN_EMITTERS_VERSION, validateOagenIr } from "../src/index.js";
+
+test("pins compiler provenance to the installed emitter dependency", () => {
+  expect(packageManifest.dependencies["@workos/oagen-emitters"]).toBe(OAGEN_EMITTERS_VERSION);
+});
+
+test("Oagen parses the acceptance contract into its shared IR", async () => {
+  const spec = await parseSpec(resolve("fixtures/contracts/canary.openapi.json"));
+  const operationCount = spec.services.reduce(
+    (count, service) => count + service.operations.length,
+    0,
+  );
+
+  expect(spec.name).toBe("Signalflare Canary API");
+  expect(operationCount).toBe(7);
+  expect(spec.models.some((model) => model.name === "Table")).toBe(true);
+  expect(spec.enums.some((entry) => entry.name === "TableStatus")).toBe(true);
+});
+
+test("rejects unresolved references in Oagen IR before emitting broken imports", async () => {
+  const spec = await parseSpec(resolve("fixtures/contracts/canary.openapi.json"));
+  spec.models.push({
+    name: "BrokenModel",
+    fields: [
+      {
+        name: "missing",
+        type: { kind: "model", name: "MissingModel" },
+        required: true,
+      },
+    ],
+  });
+
+  const report = validateOagenIr(spec);
+  expect(report.valid).toBe(false);
+  expect(report.diagnostics.map((diagnostic) => diagnostic.code)).toContain(
+    "oagen.ir.model-reference.unresolved",
+  );
+});

@@ -1,0 +1,531 @@
+{
+  "openapi": "3.1.2",
+  "info": {
+    "title": "Signalflare Canary API",
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "url": "https://api.canary.signalflare.ai"
+    }
+  ],
+  "security": [
+    {
+      "BearerAuth": []
+    }
+  ],
+  "x-signalflare-product": {
+    "id": "canary",
+    "displayName": "Canary",
+    "contractVersion": 1
+  },
+  "paths": {
+    "/tables/{table_id}": {
+      "get": {
+        "operationId": "getTable",
+        "summary": "Get a governed table",
+        "tags": ["Tables"],
+        "x-signalflare-api-id": "public",
+        "x-signalflare-sdk": {
+          "audiences": ["access"],
+          "visibility": "public",
+          "stability": "stable"
+        },
+        "parameters": [
+          {
+            "name": "table_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "include_columns",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Table",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Table"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        }
+      }
+    },
+    "/tables": {
+      "get": {
+        "operationId": "listTables",
+        "summary": "List governed tables",
+        "tags": ["Tables"],
+        "x-signalflare-api-id": "public",
+        "x-signalflare-sdk": {
+          "audiences": ["access"],
+          "visibility": "public",
+          "stability": "stable"
+        },
+        "parameters": [
+          {
+            "name": "after",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Page of tables",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TablePage"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        }
+      }
+    },
+    "/legacy-tables": {
+      "get": {
+        "operationId": "listLegacyTables",
+        "summary": "List tables using the legacy route",
+        "deprecated": true,
+        "tags": ["Tables"],
+        "x-signalflare-api-id": "public",
+        "x-signalflare-sdk": {
+          "audiences": ["access"],
+          "visibility": "public",
+          "stability": "stable"
+        },
+        "responses": {
+          "200": {
+            "description": "Page of tables",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TablePage"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        }
+      }
+    },
+    "/pipelines": {
+      "post": {
+        "operationId": "createPipeline",
+        "summary": "Register a pipeline",
+        "tags": ["Pipelines"],
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "x-signalflare-api-id": "public",
+        "x-signalflare-sdk": {
+          "audiences": ["pipelines"],
+          "visibility": "public",
+          "stability": "stable"
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreatePipelineRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Pipeline registered",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Pipeline"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        }
+      }
+    },
+    "/runner/runs/{run_id}/heartbeat": {
+      "post": {
+        "operationId": "heartbeatRun",
+        "summary": "Renew a runner lease",
+        "tags": ["Runner"],
+        "x-signalflare-api-id": "control",
+        "x-signalflare-sdk": {
+          "audiences": ["runner"],
+          "visibility": "internal",
+          "stability": "stable"
+        },
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HeartbeatRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Renewed lease",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Lease"
+                }
+              }
+            }
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        }
+      }
+    },
+    "/admin/organizations/{organization_id}": {
+      "get": {
+        "operationId": "getOrganization",
+        "summary": "Get an organization",
+        "tags": ["Admin"],
+        "x-signalflare-api-id": "control",
+        "x-signalflare-sdk": {
+          "audiences": ["admin"],
+          "visibility": "internal",
+          "stability": "stable"
+        },
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Organization",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Organization"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        }
+      }
+    },
+    "/preview/replays": {
+      "post": {
+        "operationId": "createReplay",
+        "summary": "Create an experimental replay",
+        "tags": ["Preview"],
+        "x-signalflare-api-id": "control",
+        "x-signalflare-implemented": false,
+        "x-signalflare-sdk": {
+          "audiences": ["preview"],
+          "visibility": "internal",
+          "stability": "experimental"
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["runId"],
+                "properties": {
+                  "runId": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Replay accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["replayId"],
+                  "properties": {
+                    "replayId": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "BearerAuth": {
+        "type": "http",
+        "scheme": "bearer"
+      },
+      "ApiKeyAuth": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-API-Key"
+      }
+    },
+    "responses": {
+      "ApiError": {
+        "description": "Structured API error",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "required": ["code", "message"],
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "requestId": {
+            "type": ["string", "null"]
+          },
+          "details": {
+            "type": ["object", "null"],
+            "additionalProperties": true
+          }
+        }
+      },
+      "TableStatus": {
+        "type": "string",
+        "enum": ["ready", "syncing", "failed"],
+        "x-signalflare-open-enum": true
+      },
+      "Table": {
+        "type": "object",
+        "required": ["id", "name", "status"],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": ["string", "null"]
+          },
+          "status": {
+            "$ref": "#/components/schemas/TableStatus"
+          },
+          "columns": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "TablePage": {
+        "type": "object",
+        "required": ["data"],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Table"
+            }
+          },
+          "after": {
+            "type": ["string", "null"]
+          }
+        },
+        "x-signalflare-pagination": {
+          "strategy": "cursor",
+          "parameter": "after",
+          "items": "data"
+        }
+      },
+      "PostgresSource": {
+        "type": "object",
+        "required": ["kind", "connectionRef", "table"],
+        "properties": {
+          "kind": {
+            "const": "postgres"
+          },
+          "connectionRef": {
+            "type": "string"
+          },
+          "table": {
+            "type": "string"
+          }
+        }
+      },
+      "ObjectStoreSource": {
+        "type": "object",
+        "required": ["kind", "bucket"],
+        "properties": {
+          "kind": {
+            "const": "object-store"
+          },
+          "bucket": {
+            "type": "string"
+          },
+          "prefix": {
+            "type": "string"
+          }
+        }
+      },
+      "PipelineSource": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/PostgresSource"
+          },
+          {
+            "$ref": "#/components/schemas/ObjectStoreSource"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "kind",
+          "mapping": {
+            "postgres": "#/components/schemas/PostgresSource",
+            "object-store": "#/components/schemas/ObjectStoreSource"
+          }
+        }
+      },
+      "CreatePipelineRequest": {
+        "type": "object",
+        "required": ["pipelineId", "source"],
+        "properties": {
+          "pipelineId": {
+            "type": "string"
+          },
+          "source": {
+            "$ref": "#/components/schemas/PipelineSource"
+          },
+          "schedule": {
+            "type": "string"
+          },
+          "description": {
+            "type": ["string", "null"]
+          }
+        }
+      },
+      "Pipeline": {
+        "type": "object",
+        "required": ["pipelineId", "createdAt"],
+        "properties": {
+          "pipelineId": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "HeartbeatRequest": {
+        "type": "object",
+        "required": ["attempt", "leaseToken"],
+        "properties": {
+          "attempt": {
+            "type": "integer"
+          },
+          "leaseToken": {
+            "type": "string"
+          }
+        }
+      },
+      "Lease": {
+        "type": "object",
+        "required": ["expiresAt"],
+        "properties": {
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "Organization": {
+        "type": "object",
+        "required": ["id", "name"],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

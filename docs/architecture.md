@@ -1,0 +1,87 @@
+# Architecture
+
+Product repositories provide a canonical OpenAPI 3.1 contract and a typed
+`sdk.config.ts`. This package validates both before passing a selected contract
+to Oagen.
+
+```text
+sdk.config.ts + product.openapi.json
+              |
+              v
+configuration and Signalflare contract validation
+              |
+              v
+access / pipelines / runner / admin / preview profile selection
+              |
+              v
+Oagen parse -> IR -> operation plan
+              |
+              v
+Signalflare-configured emitters -> product-owned SDK trees
+```
+
+## Current implementation boundary
+
+The implemented vertical slice provides:
+
+- typed manifest definition and runtime validation;
+- OpenAPI loading and external-reference bundling;
+- OpenAPI 3.1 and Signalflare extension validation;
+- deterministic multi-profile selection with preview exclusion;
+- structured diagnostics through `signalflare-sdk validate`;
+- profile-filtered generation through `signalflare-sdk generate`;
+- Oagen manifests enhanced with source/config provenance;
+- a Signalflare TypeScript wrapper over the upstream Node emitter;
+- generated fetch transport, structured errors, and operation-aware auth;
+- strict TypeScript compile and wire/auth tests over the acceptance contract.
+
+The upstream Python, Go, and Rust emitters are orchestrated as spec-derived core
+generators, but still rely on product-owned transport/error runtimes. Effect and
+full standalone runtimes for those languages remain future slices.
+
+## Authentication boundary
+
+The compiler preserves named OpenAPI security schemes and each operation's
+inherited or overridden requirements. OpenAPI alternatives remain logical OR;
+multiple schemes in one alternative remain logical AND; `security: []` remains
+anonymous. Generated TypeScript clients select credentials per operation rather
+than attaching every configured credential to every request.
+
+Credential acquisition remains application-owned. A WorkOS AuthKit application
+passes its current access token as a string or async provider through
+`ClientOptions.token`; generated operations only perform standards-based bearer
+or API-key attachment.
+
+## Upstream adapters
+
+Oagen 0.29.2 drops variants from standalone component-level discriminated unions.
+Until that gap is fixed upstream, generation applies a diagnosed pre-IR adapter
+that flattens such unions to an open wire-compatible object. The canonical
+contract is never mutated and every applied adapter appears in the generation
+report.
+
+## Stable operation identity
+
+The compiler identifies an operation as:
+
+```text
+product id + source API id + operationId
+```
+
+HTTP method and path remain compatibility inputs, but are not the sole public
+identity.
+
+## Validation order
+
+1. Load and validate `sdk.config.ts`.
+2. Parse and bundle the OpenAPI document.
+3. Enforce the Signalflare 3.1.x policy and vendor extensions.
+4. Reject request/response shapes known to misgenerate.
+5. Select the union of operations enabled for each target's profiles.
+6. Apply diagnosed temporary adapters for known upstream parser gaps.
+7. Parse the selected contract into Oagen IR and preserve operationId names.
+8. Emit through Oagen, add the target runtime, and write ownership/provenance manifests.
+
+Running policy validation before Oagen is intentional: Oagen accepts OpenAPI
+`3.*` and its IR does not retain every Signalflare vendor extension needed for
+profile selection and diagnostics.

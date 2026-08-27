@@ -1,0 +1,108 @@
+# Real-contract pilot findings
+
+These are non-invasive compiler pilots over product-owned OpenAPI artifacts. Pilot overlays and generated trees live under `.tmp/`; product repositories were not modified.
+
+## Geocode
+
+Source: `../geocode/app/public/openapi.json`
+
+The temporary onboarding overlay:
+
+- upgrades the declared baseline from OpenAPI 3.1.0 to 3.1.2;
+- adds `x-signalflare-product`, operation identity, and SDK profile metadata;
+- initially selects the five JSON operations whose success responses have documented schemas;
+- leaves batch, CSV batch, health, index stats, and taxonomy out of generation until their response contracts are complete/supported.
+
+### TypeScript result
+
+- 5 operations and 33 generated files;
+- strict compilation passes with `exactOptionalPropertyTypes` and `noUncheckedIndexedAccess`;
+- mocked wire calls verify bearer auth, query names, structured request serialization, and response deserialization;
+- excluded operations and their now-unreachable component schemas do not appear in the output.
+
+The OpenAPI descriptions become JSDoc on resources, methods, parameters, and models. This is IDE/API documentation, not yet a standalone Markdown or HTML documentation site.
+
+Example generated surface:
+
+```ts
+const client = new GeocodeClient({
+  token: async () => getAccessToken(),
+});
+
+await client.geocode.search({
+  text: "1600 Pennsylvania Ave",
+  limit: 5,
+  focusLat: 38.9,
+  focusLon: -77.04,
+});
+```
+
+Verified wire output includes `focus_lat`, `focus_lon`, and `Authorization: Bearer …`. Structured search correctly separates query fields from its JSON body.
+
+### Contract findings
+
+- `/v1/gc/batch` and `/v1/gc/taxonomy` describe successful responses but provide no response content/schema, so a generated client can only return `void`.
+- `/v1/gc/batch/csv` uses `text/csv`, which the initial JSON transport deliberately does not support.
+- health and index-stat operations do not document expected error responses.
+- `Feature.properties` is intentionally emitted as `any` because the source schema is open-ended.
+- schema constraints become documentation and static types; generated clients do not perform runtime input validation.
+
+### Other languages
+
+The same five-operation profile emits spec-derived cores:
+
+| Target | Files | Current result                                                                                                                               |
+| ------ | ----: | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| Python |    18 | Syntax compiles, but imports a missing WorkOS-derived hand-owned runtime and emits redundant forms such as `Optional[Optional[str]]`.        |
+| Go     |     9 | Models/tests emit, but the resource implementation and runtime are absent; generated code still contains WorkOS-specific client assumptions. |
+| Rust   |    18 | Generated source formats successfully, but expects missing `client`, `error`, crate-root, and package scaffolding.                           |
+
+The compiler reports these targets as incomplete. They should not be published until Signalflare-owned runtimes replace the WorkOS assumptions.
+
+## Atlas
+
+Source: `../etl/packages/types/generated/atlas.openapi.json`
+
+Atlas is the best strategic follow-up because it has an existing hand-written Promise/Effect client for parity comparison. A temporary overlay made the top-level contract policy-valid by:
+
+- upgrading to 3.1.2 and adding a server;
+- assigning access, pipeline, runner, admin, and preview metadata;
+- excluding 23 explicitly unimplemented operations;
+- promoting inline success envelopes to named schemas;
+- removing 11 path identifiers duplicated in request bodies.
+
+That selects 30 implemented operations. Oagen then produces nine unresolved references for nested inline object schemas. The compiler now rejects this invalid IR before writing a broken SDK. Representative missing types include freshness, lineage, claimed-run, and query-result objects.
+
+Additional API-quality findings from the raw emitter attempt:
+
+- `Atlas…` component names are singularized by Oagen to `Atla…`;
+- dotted operation IDs produce redundant methods such as `client.catalog.catalogGet()`;
+- inline enums can lead the upstream Node emitter to export files it never generates.
+
+Atlas should therefore promote reusable nested objects/enums to named components and simplify component/operation naming before it becomes a publication pilot.
+
+## Navigator
+
+Source: `../navigator/apps/api/openapi/openapi.json`
+
+A metadata-only onboarding overlay over all 419 operations currently reports 884 policy errors:
+
+| Diagnostic                        | Count |
+| --------------------------------- | ----: |
+| Missing documented error response |   302 |
+| Inline production response schema |   385 |
+| Inline production request schema  |   154 |
+| Legacy `nullable` keyword         |    26 |
+| Inline error schema               |     9 |
+| Missing explicit 2xx response     |     7 |
+| GET request body                  |     1 |
+
+Navigator is too broad for the first pilot. Start with a small tagged/profiled subset only after the canonical generator can attach metadata and named schemas at the source.
+
+## Compiler improvements discovered by these pilots
+
+The real-contract runs resulted in three safeguards:
+
+1. Profile compilation now prunes unreachable component schemas, preventing preview-only models from leaking into production SDKs.
+2. Automatic pagination inferred from ordinary `limit`/`offset` parameters is disabled for every target; it had incorrectly converted Geocode places into a page iterator.
+3. Oagen IR is validated for unresolved model/enum references before emission, and generated TypeScript local imports are checked before a run is accepted.
