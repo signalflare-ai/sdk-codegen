@@ -31,11 +31,19 @@ const NonBlankString = Schema.String.check(
   Schema.isPattern(/\S/, { expected: "a non-blank string" }),
 );
 
+export const SdkVersion = Schema.String.check(
+  Schema.isPattern(
+    /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/,
+    { expected: "a semantic version" },
+  ),
+);
+
 export const ProductConfig = Schema.Struct({
   id: Schema.String.check(
     Schema.isPattern(/^[a-z][a-z0-9-]*$/, { expected: "a lowercase kebab-case product id" }),
   ),
   displayName: NonBlankString,
+  sdkVersion: Schema.optionalKey(SdkVersion),
 });
 export interface ProductConfig extends Schema.Schema.Type<typeof ProductConfig> {}
 
@@ -56,6 +64,7 @@ const BaseTargetFields = {
   output: NonBlankString,
   profiles: Schema.NonEmptyArray(SdkAudience),
   enabled: Schema.optionalKey(Schema.Boolean),
+  sdkVersion: Schema.optionalKey(SdkVersion),
 };
 
 export const BaseTargetConfig = Schema.Struct(BaseTargetFields);
@@ -65,6 +74,7 @@ export const TypeScriptTargetConfig = Schema.Struct({
   ...BaseTargetFields,
   packageName: NonBlankString,
   effect: Schema.optionalKey(Schema.Boolean),
+  effectVersion: Schema.optionalKey(SdkVersion),
 });
 export interface TypeScriptTargetConfig extends Schema.Schema.Type<typeof TypeScriptTargetConfig> {}
 

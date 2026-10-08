@@ -1,0 +1,266 @@
+{
+  "openapi": "3.1.2",
+  "info": {
+    "title": "Atlas API",
+    "version": "0.1.0",
+    "description": "Representative Atlas contract fixture: credential exchange, catalog and JSON query envelopes. Not a replacement for Atlas's full canonical contract."
+  },
+  "servers": [{ "url": "https://atlas.signalflare.test" }],
+  "x-signalflare-product": { "id": "atlas", "displayName": "Atlas", "contractVersion": 1 },
+  "security": [{ "CatalogBearer": [] }],
+  "paths": {
+    "/v1/auth/exchange": {
+      "post": {
+        "operationId": "auth.exchange",
+        "summary": "Exchange a WorkOS credential",
+        "tags": ["Auth"],
+        "x-signalflare-api-id": "atlas",
+        "x-signalflare-sdk": {
+          "audiences": ["access"],
+          "visibility": "public",
+          "stability": "beta"
+        },
+        "security": [{ "WorkosBearer": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/EmptyRequest" } }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Catalog-bound credential",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/AuthExchangeEnvelope" }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/AtlasError" }
+        }
+      }
+    },
+    "/v1/catalog": {
+      "get": {
+        "operationId": "catalog.get",
+        "summary": "Get the authenticated catalog",
+        "tags": ["Catalog"],
+        "x-signalflare-api-id": "atlas",
+        "x-signalflare-sdk": {
+          "audiences": ["access"],
+          "visibility": "public",
+          "stability": "beta"
+        },
+        "responses": {
+          "200": {
+            "description": "Catalog metadata",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/CatalogEnvelope" } }
+            }
+          },
+          "401": { "$ref": "#/components/responses/AtlasError" }
+        }
+      }
+    },
+    "/v1/query": {
+      "post": {
+        "operationId": "query.execute",
+        "summary": "Execute a read-only JSON query",
+        "tags": ["Query"],
+        "x-signalflare-api-id": "atlas",
+        "x-signalflare-sdk": {
+          "audiences": ["access"],
+          "visibility": "public",
+          "stability": "beta"
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/QueryExecuteRequest" } }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "JSON rows with freshness and lineage",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/QueryEnvelope" } }
+            }
+          },
+          "400": { "$ref": "#/components/responses/AtlasError" }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "CatalogBearer": { "type": "http", "scheme": "bearer", "bearerFormat": "JWT" },
+      "WorkosBearer": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "WorkOS access token or API key"
+      }
+    },
+    "responses": {
+      "AtlasError": {
+        "description": "Structured Atlas failure",
+        "content": {
+          "application/json": { "schema": { "$ref": "#/components/schemas/AtlasError" } }
+        }
+      }
+    },
+    "schemas": {
+      "EmptyRequest": { "type": "object", "properties": {} },
+      "AtlasError": {
+        "type": "object",
+        "required": ["ok", "code", "message"],
+        "properties": {
+          "ok": { "type": "boolean", "const": false },
+          "code": { "type": "string" },
+          "message": { "type": "string" },
+          "requestId": { "type": "string" },
+          "details": { "type": "object", "additionalProperties": true }
+        }
+      },
+      "AuthExchangeEnvelope": {
+        "type": "object",
+        "required": ["ok", "data"],
+        "properties": {
+          "ok": { "type": "boolean", "const": true },
+          "data": { "$ref": "#/components/schemas/AuthExchangeResponse" }
+        }
+      },
+      "AuthExchangeResponse": {
+        "type": "object",
+        "required": ["catalogId", "credentialId", "jwt", "permissions", "expiresAt"],
+        "properties": {
+          "catalogId": { "type": "string" },
+          "credentialId": { "type": "string" },
+          "jwt": { "type": "string" },
+          "permissions": { "type": "array", "items": { "type": "string" } },
+          "expiresAt": { "type": "string" },
+          "authMethod": { "type": "string", "enum": ["workos_access_token", "workos_api_key"] },
+          "principalId": { "type": "string" }
+        }
+      },
+      "CatalogEnvelope": {
+        "type": "object",
+        "required": ["ok", "data"],
+        "properties": {
+          "ok": { "type": "boolean", "const": true },
+          "data": { "$ref": "#/components/schemas/CatalogInfo" }
+        }
+      },
+      "CatalogInfo": {
+        "type": "object",
+        "required": [
+          "catalogId",
+          "workosOrgId",
+          "status",
+          "dataAccessMode",
+          "quackUrl",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "catalogId": { "type": "string" },
+          "workosOrgId": { "type": "string" },
+          "status": { "type": "string", "enum": ["active", "provisioning", "disabled"] },
+          "dataAccessMode": { "type": "string", "enum": ["catalog_only", "trusted_client"] },
+          "quackUrl": { "type": "string" },
+          "queryUrl": { "type": "string" },
+          "semanticQueryUrl": { "type": "string" },
+          "createdAt": { "type": "string" },
+          "updatedAt": { "type": "string" }
+        }
+      },
+      "QueryExecuteRequest": {
+        "type": "object",
+        "required": ["sql"],
+        "properties": {
+          "sql": { "type": "string" },
+          "format": { "type": "string", "enum": ["json"] },
+          "maxRows": { "type": "number" },
+          "timeoutMs": { "type": "number" }
+        }
+      },
+      "QueryEnvelope": {
+        "type": "object",
+        "required": ["ok", "data"],
+        "properties": {
+          "ok": { "type": "boolean", "const": true },
+          "data": { "$ref": "#/components/schemas/QueryJsonResponse" }
+        }
+      },
+      "QueryJsonResponse": {
+        "type": "object",
+        "required": [
+          "format",
+          "catalogId",
+          "columns",
+          "rows",
+          "rowCount",
+          "truncated",
+          "elapsedMs"
+        ],
+        "properties": {
+          "format": { "type": "string", "const": "json" },
+          "catalogId": { "type": "string" },
+          "columns": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/QueryResultColumn" }
+          },
+          "rows": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+          "rowCount": { "type": "number" },
+          "truncated": { "type": "boolean" },
+          "elapsedMs": { "type": "number" },
+          "freshness": { "$ref": "#/components/schemas/FreshnessStatus" },
+          "lineage": { "type": "array", "items": { "$ref": "#/components/schemas/LineageEdge" } }
+        }
+      },
+      "QueryResultColumn": {
+        "type": "object",
+        "required": ["name", "type", "nullable"],
+        "properties": {
+          "name": { "type": "string" },
+          "type": { "type": "string" },
+          "nullable": { "type": "boolean" }
+        }
+      },
+      "FreshnessStatus": {
+        "type": "object",
+        "required": ["status"],
+        "properties": {
+          "status": { "type": "string", "enum": ["fresh", "stale", "unknown"] },
+          "lastSuccessfulRunId": { "type": "string" },
+          "lastCommitId": { "type": "string" },
+          "lastCommittedAt": { "type": "string" },
+          "maxSourceUpdatedAt": { "type": "string" },
+          "expectedIntervalSeconds": { "type": "number" },
+          "lagSeconds": { "type": "number" },
+          "reason": { "type": "string" }
+        }
+      },
+      "LineageRef": {
+        "type": "object",
+        "required": ["kind", "id"],
+        "properties": {
+          "kind": { "type": "string" },
+          "id": { "type": "string" },
+          "versionId": { "type": "string" }
+        }
+      },
+      "LineageEdge": {
+        "type": "object",
+        "required": ["from", "to", "kind"],
+        "properties": {
+          "from": { "$ref": "#/components/schemas/LineageRef" },
+          "to": { "$ref": "#/components/schemas/LineageRef" },
+          "kind": { "type": "string" },
+          "versionId": { "type": "string" },
+          "runId": { "type": "string" },
+          "createdAt": { "type": "string" }
+        }
+      }
+    }
+  }
+}

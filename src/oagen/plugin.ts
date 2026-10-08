@@ -1,14 +1,14 @@
 import type { OagenConfig } from "@workos/oagen";
 import {
-  goEmitter,
   goExtractor,
   nodeExtractor,
-  pythonEmitter,
   pythonExtractor,
-  rustEmitter,
   rustExtractor,
   workosEmittersPlugin,
 } from "@workos/oagen-emitters";
+import { signalflareGoEmitter } from "../emitters/go/index.js";
+import { signalflarePythonEmitter } from "../emitters/python/index.js";
+import { signalflareRustEmitter } from "../emitters/rust/index.js";
 import { signalflareTypeScriptEmitter } from "../emitters/typescript/index.js";
 
 const ENABLED_UPSTREAM_LANGUAGES = ["node", "python", "go", "rust"] as const;
@@ -30,7 +30,12 @@ const smokeRunners = Object.fromEntries(
  * TypeScript operation/model layer.
  */
 export const signalflareOagenPlugin = {
-  emitters: [signalflareTypeScriptEmitter, pythonEmitter, goEmitter, rustEmitter],
+  emitters: [
+    signalflareTypeScriptEmitter,
+    signalflarePythonEmitter,
+    signalflareGoEmitter,
+    signalflareRustEmitter,
+  ],
   extractors: [nodeExtractor, pythonExtractor, goExtractor, rustExtractor],
   smokeRunners,
 } satisfies Pick<OagenConfig, "emitters" | "extractors" | "smokeRunners">;

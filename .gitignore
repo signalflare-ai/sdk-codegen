@@ -4,3 +4,8 @@ coverage/
 .tmp/
 *.tsbuildinfo
 .DS_Store
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.venv/

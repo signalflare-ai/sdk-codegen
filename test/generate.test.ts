@@ -116,7 +116,7 @@ describe("SDK generation", () => {
         ...(typeof init?.body === "string" ? { body: init.body } : {}),
       });
       if (url.pathname === "/pipelines") {
-        return Response.json({ pipeline_id: "daily", created_at: "2026-08-15T00:00:00Z" });
+        return Response.json({ pipelineId: "daily", createdAt: "2026-08-15T00:00:00Z" });
       }
       return Response.json({ id: "orders", name: "Orders", status: "ready" });
     };
@@ -140,8 +140,8 @@ describe("SDK generation", () => {
     expect(requests[1]?.headers.get("x-api-key")).toBe("pipeline-key");
     expect(requests[1]?.headers.has("authorization")).toBe(false);
     expect(JSON.parse(requests[1]?.body ?? "{}")).toMatchObject({
-      pipeline_id: "daily",
-      source: { kind: "postgres", connection_ref: "warehouse", table: "orders" },
+      pipelineId: "daily",
+      source: { kind: "postgres", connectionRef: "warehouse", table: "orders" },
     });
 
     const bearerOnlyClient = new sdk.CanaryClient({

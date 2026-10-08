@@ -49,15 +49,17 @@ Verified wire output includes `focus_lat`, `focus_lon`, and `Authorization: Bear
 
 ### Other languages
 
-The same five-operation profile emits spec-derived cores:
+The same five-operation profile now emits complete standalone packages:
 
-| Target | Files | Current result                                                                                                                               |
-| ------ | ----: | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| Python |    18 | Syntax compiles, but imports a missing WorkOS-derived hand-owned runtime and emits redundant forms such as `Optional[Optional[str]]`.        |
-| Go     |     9 | Models/tests emit, but the resource implementation and runtime are absent; generated code still contains WorkOS-specific client assumptions. |
-| Rust   |    18 | Generated source formats successfully, but expects missing `client`, `error`, crate-root, and package scaffolding.                           |
+| Target | Files | Current result                                                                                                                                                  |
+| ------ | ----: | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Python |    31 | Ruff and strict Pyright pass; all 43 generated tests pass; the wheel builds, installs in an isolated environment, and imports both sync and async clients.      |
+| Go     |    17 | `gofmt`, `go vet`, race-enabled generated tests, `go doc`, and module listing pass. The wrapper avoids the root-client/service `geocode.go` filename collision. |
+| Rust   |    30 | Formatting, all-target checks, Clippy with warnings denied, 27 generated tests, rustdoc with broken links denied, and local crate packaging pass.               |
 
-The compiler reports these targets as incomplete. They should not be published until Signalflare-owned runtimes replace the WorkOS assumptions.
+All targets report zero generation warnings. Authentication, errors, and wire
+semantics are exercised more exhaustively by the permanent shared runtime
+conformance suite.
 
 ## Atlas
 
@@ -80,6 +82,22 @@ Remaining API-quality findings:
 - the temporary onboarding overlay still owns Signalflare metadata, named success envelopes, and path/body deduplication.
 
 Atlas is no longer blocked on nested model IR, but should simplify component/operation naming and move the remaining overlay policy into its canonical generator before publication.
+
+### Permanent Atlas regression coverage
+
+The shared compiler now carries `fixtures/contracts/atlas.openapi.json`, a
+representative three-operation regression contract rather than the entire
+temporary Atlas overlay. It covers credential exchange, catalog, and JSON query
+envelopes, per-operation credentials, freshness/lineage, and open row dictionaries.
+It exposed and fixes Node camelCase wire-name rewriting, Python's reserved
+`from` field, Go Auth/runtime filename collisions, and Rust Auth/Query facade
+collisions. Promise and native Effect share strict-compiling models/serializers.
+`bun run test:atlas` exercises native target gates and read-only drift/compatibility
+reports; [release gates](release-gates.md) documents the release workflow.
+
+This finishes the shared compiler's client-surface/release-gate slice, not Atlas's
+product rollout. The canonical Atlas generator still needs the remaining policy
+overlay, SDK manifest/package/release wiring, and full implemented-operation parity.
 
 ## Navigator
 
@@ -105,4 +123,9 @@ The real-contract runs resulted in three safeguards:
 
 1. Profile compilation now prunes unreachable component schemas, preventing preview-only models from leaking into production SDKs.
 2. Automatic pagination inferred from ordinary `limit`/`offset` parameters is disabled for every target; it had incorrectly converted Geocode places into a page iterator.
-3. Oagen IR is validated for unresolved model/enum references before emission, and generated TypeScript local imports are checked before a run is accepted.
+3. Oagen IR is validated for unresolved model/enum references before emission,
+   and generated TypeScript/Python imports and Rust modules are checked before a
+   run is accepted.
+4. Native wrappers supply complete HTTP/auth/error/package runtimes. The real
+   Geocode rerun additionally found and fixed Go root-client filename collisions
+   and upstream Python numeric-query test expectations.

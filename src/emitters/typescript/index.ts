@@ -10,11 +10,15 @@ import {
 import { nodeEmitter } from "@workos/oagen-emitters";
 import type { AuthPlan } from "../../contract/auth.js";
 import { OAGEN_EMITTERS_VERSION } from "../../version.js";
+import { generateEffectClient, generateEffectResources, generateEffectRuntime } from "./effect.js";
 import { generateTypeScriptRuntime, type TypeScriptRuntimeOptions } from "./runtime.js";
+import { preserveTypeScriptWireNames } from "./wire-names.js";
 
 export interface SignalflareTypeScriptEmitterOptions extends TypeScriptRuntimeOptions {
   [key: string]: unknown;
   clientClassName: string;
+  effect?: boolean;
+  effectVersion?: string;
 }
 
 function optionsFor(context: EmitterContext): SignalflareTypeScriptEmitterOptions {
@@ -42,7 +46,7 @@ function makeExactOptionalCompatible(files: GeneratedFile[]): GeneratedFile[] {
   for (const file of files) {
     if (!file.path.endsWith(".ts")) continue;
     file.content = file.content.replace(
-      /^(\s*(?:readonly\s+)?[A-Za-z_$][\w$]*\?): ([^;\n]+);$/gm,
+      /^(\s*(?:readonly\s+)?(?:[A-Za-z_$][\w$]*|"[^"\n]+"|'[^'\n]+')\?): ([^;\n]+);$/gm,
       (line, property: string, type: string) =>
         type.includes("undefined") ? line : `${property}: ${type} | undefined;`,
     );
@@ -88,11 +92,40 @@ function exposeSignalflareClient(files: GeneratedFile[], context: EmitterContext
   if (!index.content.includes("operation-manifest")) {
     index.content += "\nexport { operationManifest } from './operation-manifest';\n";
   }
+  if (options.effect) files.push(...generateEffectClient(files, options));
+  files.push({
+    path: "package.json",
+    overwriteExisting: false,
+    content: `${JSON.stringify(
+      {
+        name: options.packageName,
+        version: options.sdkVersion,
+        private: true,
+        type: "module",
+        exports: {
+          ".": "./src/index.ts",
+          ...(options.effect ? { "./effect": "./src/effect.ts" } : {}),
+        },
+        ...(options.effect
+          ? {
+              peerDependencies: { effect: options.effectVersion },
+              peerDependenciesMeta: { effect: { optional: true } },
+            }
+          : {}),
+      },
+      null,
+      2,
+    )}\n`,
+  });
   return makeExactOptionalCompatible(files);
 }
 
 function runtimeFiles(context: EmitterContext): GeneratedFile[] {
-  return generateTypeScriptRuntime(optionsFor(context)).map((file) => ({
+  const options = optionsFor(context);
+  return [
+    ...generateTypeScriptRuntime(options),
+    ...(options.effect ? generateEffectRuntime(options) : []),
+  ].map((file) => ({
     ...file,
     overwriteExisting: true,
   }));
@@ -122,11 +155,21 @@ function buildOperationsMap(context: EmitterContext): OperationsMap {
 export const signalflareTypeScriptEmitter: Emitter = {
   language: "node",
   generateModels: (models, context) =>
-    makeExactOptionalCompatible(nodeEmitter.generateModels(models, context)),
+    makeExactOptionalCompatible(
+      preserveTypeScriptWireNames(nodeEmitter.generateModels(models, context), context),
+    ),
   generateEnums: (enums, context) =>
     makeExactOptionalCompatible(nodeEmitter.generateEnums(enums, context)),
-  generateResources: (services, context) =>
-    makeExactOptionalCompatible(nodeEmitter.generateResources(services, context)),
+  generateResources: (services, context) => {
+    const files = preserveTypeScriptWireNames(
+      nodeEmitter.generateResources(services, context),
+      context,
+    );
+    return makeExactOptionalCompatible([
+      ...files,
+      ...(optionsFor(context).effect ? generateEffectResources(files) : []),
+    ]);
+  },
   generateClient: (spec: ApiSpec, context) =>
     exposeSignalflareClient(nodeEmitter.generateClient(spec, context), context),
   generateErrors: (context) =>
@@ -136,7 +179,15 @@ export const signalflareTypeScriptEmitter: Emitter = {
   generateTests: (spec, context) => {
     const ownedRuntimePaths = new Set(runtimeFiles(context).map((file) => file.path));
     return makeExactOptionalCompatible(
-      nodeEmitter.generateTests(spec, context).filter((file) => !ownedRuntimePaths.has(file.path)),
+      nodeEmitter
+        .generateTests(spec, context)
+        .filter(
+          (file) =>
+            !ownedRuntimePaths.has(file.path) &&
+            !/(?:\.effect\.ts$|^src\/effect(?:-client|-runtime)?\.ts$)/.test(file.path) &&
+            file.path !== "package.json" &&
+            file.path !== "EFFECT.md",
+        ),
     );
   },
   buildOperationsMap: (_spec, context) => buildOperationsMap(context),

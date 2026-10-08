@@ -1,0 +1,467 @@
+{
+  "openapi": "3.1.2",
+  "info": {
+    "title": "Signalflare Runtime Conformance API",
+    "version": "1.0.0",
+    "description": "Permanent wire, authentication, error, nullability, and documentation fixture for generated SDK runtimes."
+  },
+  "servers": [
+    {
+      "url": "https://runtime-conformance.signalflare.test"
+    }
+  ],
+  "security": [
+    {
+      "BearerAuth": []
+    }
+  ],
+  "x-signalflare-product": {
+    "id": "runtime-conformance",
+    "displayName": "Runtime Conformance",
+    "contractVersion": 1
+  },
+  "paths": {
+    "/widgets/{widget_id}": {
+      "get": {
+        "operationId": "getWidget",
+        "summary": "Get a widget",
+        "description": "Retrieves a widget using the globally inherited bearer credential.",
+        "tags": ["Widgets"],
+        "x-signalflare-api-id": "public",
+        "x-signalflare-sdk": {
+          "audiences": ["access"],
+          "visibility": "public",
+          "stability": "stable"
+        },
+        "parameters": [
+          {
+            "name": "widget_id",
+            "in": "path",
+            "required": true,
+            "description": "The stable widget identifier.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "include_history",
+            "in": "query",
+            "required": false,
+            "description": "Include historical widget state when true.",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          {
+            "name": "X-Trace-Mode",
+            "in": "header",
+            "required": false,
+            "description": "Enables additional request tracing for this call.",
+            "schema": {
+              "type": "string",
+              "enum": ["standard", "verbose"]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The requested widget.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Widget"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        }
+      }
+    },
+    "/jobs": {
+      "post": {
+        "operationId": "createJob",
+        "summary": "Create a job",
+        "description": "Creates a job while exercising omission and explicit null serialization.",
+        "tags": ["Jobs"],
+        "security": [
+          {
+            "HeaderKey": []
+          }
+        ],
+        "x-signalflare-api-id": "public",
+        "x-signalflare-sdk": {
+          "audiences": ["access"],
+          "visibility": "public",
+          "stability": "stable"
+        },
+        "requestBody": {
+          "required": true,
+          "description": "The job to create.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateJobRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The created job.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Job"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        }
+      }
+    },
+    "/auth/query-key": {
+      "get": {
+        "operationId": "verifyQueryKey",
+        "summary": "Verify query authentication",
+        "description": "Places an API key in the query string.",
+        "tags": ["Authentication"],
+        "security": [
+          {
+            "QueryKey": []
+          }
+        ],
+        "x-signalflare-api-id": "public",
+        "x-signalflare-sdk": {
+          "audiences": ["access"],
+          "visibility": "public",
+          "stability": "stable"
+        },
+        "responses": {
+          "200": {
+            "description": "Authentication was accepted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        }
+      }
+    },
+    "/auth/cookie-key": {
+      "get": {
+        "operationId": "verifyCookieKey",
+        "summary": "Verify cookie authentication",
+        "description": "Places an API key in the Cookie header.",
+        "tags": ["Authentication"],
+        "security": [
+          {
+            "CookieKey": []
+          }
+        ],
+        "x-signalflare-api-id": "public",
+        "x-signalflare-sdk": {
+          "audiences": ["access"],
+          "visibility": "public",
+          "stability": "stable"
+        },
+        "responses": {
+          "200": {
+            "description": "Authentication was accepted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        }
+      }
+    },
+    "/auth/combined": {
+      "get": {
+        "operationId": "verifyCombinedCredentials",
+        "summary": "Verify combined authentication",
+        "description": "Requires bearer and header API-key credentials together.",
+        "tags": ["Authentication"],
+        "security": [
+          {
+            "BearerAuth": [],
+            "HeaderKey": []
+          }
+        ],
+        "x-signalflare-api-id": "public",
+        "x-signalflare-sdk": {
+          "audiences": ["access"],
+          "visibility": "public",
+          "stability": "stable"
+        },
+        "responses": {
+          "200": {
+            "description": "Authentication was accepted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        }
+      }
+    },
+    "/auth/alternative": {
+      "get": {
+        "operationId": "verifyAlternativeCredentials",
+        "summary": "Verify alternative authentication",
+        "description": "Accepts either a bearer credential or a header API key.",
+        "tags": ["Authentication"],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "HeaderKey": []
+          }
+        ],
+        "x-signalflare-api-id": "public",
+        "x-signalflare-sdk": {
+          "audiences": ["access"],
+          "visibility": "public",
+          "stability": "stable"
+        },
+        "responses": {
+          "200": {
+            "description": "Authentication was accepted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "operationId": "getHealth",
+        "summary": "Get service health",
+        "description": "Returns service health without attaching credentials.",
+        "tags": ["System"],
+        "security": [],
+        "x-signalflare-api-id": "public",
+        "x-signalflare-sdk": {
+          "audiences": ["access"],
+          "visibility": "public",
+          "stability": "stable"
+        },
+        "responses": {
+          "200": {
+            "description": "Current service health.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResult"
+                }
+              }
+            }
+          },
+          "503": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "BearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "An AuthKit-compatible bearer access token."
+      },
+      "HeaderKey": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-API-Key",
+        "description": "An API key sent in a request header."
+      },
+      "QueryKey": {
+        "type": "apiKey",
+        "in": "query",
+        "name": "api_key",
+        "description": "An API key sent in the query string."
+      },
+      "CookieKey": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "session_key",
+        "description": "An API key sent in the Cookie header."
+      }
+    },
+    "responses": {
+      "ApiError": {
+        "description": "A structured API error.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "Widget": {
+        "type": "object",
+        "description": "A widget returned by the conformance API.",
+        "required": ["id", "name", "createdAt"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The stable widget identifier."
+          },
+          "name": {
+            "type": "string",
+            "description": "The human-readable widget name."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the widget was created."
+          },
+          "labels": {
+            "type": "object",
+            "description": "Arbitrary labels associated with the widget.",
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "CreateJobRequest": {
+        "type": "object",
+        "description": "A request covering all required and nullable field combinations.",
+        "required": ["requiredValue", "requiredNullable"],
+        "properties": {
+          "requiredValue": {
+            "type": "string",
+            "description": "A required non-null value."
+          },
+          "optionalValue": {
+            "type": "string",
+            "description": "An optional non-null value."
+          },
+          "requiredNullable": {
+            "type": ["string", "null"],
+            "description": "A required value that may explicitly be null."
+          },
+          "optionalNullable": {
+            "type": ["string", "null"],
+            "description": "An optional value that may be omitted, null, or a string."
+          },
+          "tags": {
+            "type": "array",
+            "description": "Tags attached to the job.",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "Job": {
+        "type": "object",
+        "description": "A created conformance job.",
+        "required": ["id", "state"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The stable job identifier."
+          },
+          "state": {
+            "$ref": "#/components/schemas/JobState"
+          }
+        }
+      },
+      "JobState": {
+        "type": "string",
+        "description": "The current job state.",
+        "enum": ["queued", "running", "complete"],
+        "x-signalflare-open-enum": true
+      },
+      "AuthResult": {
+        "type": "object",
+        "description": "The result of an authentication conformance check.",
+        "required": ["accepted"],
+        "properties": {
+          "accepted": {
+            "type": "boolean",
+            "description": "Whether the supplied credentials were accepted."
+          }
+        }
+      },
+      "HealthResult": {
+        "type": "object",
+        "description": "The current service health.",
+        "required": ["status"],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": ["ok"],
+            "description": "The current health status."
+          }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "description": "A structured error returned by the conformance API.",
+        "required": ["code", "message"],
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "A stable machine-readable error code."
+          },
+          "message": {
+            "type": "string",
+            "description": "A human-readable error explanation."
+          },
+          "requestId": {
+            "type": ["string", "null"],
+            "description": "The request identifier when available."
+          },
+          "details": {
+            "type": ["object", "null"],
+            "description": "Additional structured error details.",
+            "additionalProperties": true
+          }
+        }
+      }
+    }
+  }
+}

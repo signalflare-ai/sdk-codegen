@@ -1,5 +1,5 @@
 import type { SchemaRepresentation } from "effect";
-import { HttpApi, HttpApiGroup, OpenApi } from "effect/unstable/httpapi";
+import { HttpApi, HttpApiGroup, OpenApi } from "effect/http-api";
 import { OPENAPI_BASELINE, type SdkAudience, type SdkVisibility } from "../config/schema.js";
 import { isRecord } from "../shared/object.js";
 

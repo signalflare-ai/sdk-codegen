@@ -32,14 +32,16 @@
     "format:fix": "bunx oxfmt --write .",
     "lint": "bunx oxlint --deny-warnings src test",
     "test": "bun test",
+    "test:runtimes": "bash scripts/test-runtimes.sh",
+    "test:atlas": "bash scripts/test-atlas.sh",
     "typecheck": "bunx tsc --noEmit"
   },
   "dependencies": {
-    "@effect/platform-bun": "4.0.0-rc.112",
+    "@effect/platform-bun": "4.0.0",
     "@redocly/openapi-core": "2.47.0",
     "@workos/oagen": "0.29.2",
     "@workos/oagen-emitters": "0.24.4",
-    "effect": "4.0.0-rc.112"
+    "effect": "4.0.0"
   },
   "devDependencies": {
     "@socketsecurity/bun-security-scanner": "1.1.2",
@@ -47,6 +49,9 @@
     "oxfmt": "0.65.0",
     "oxlint": "1.80.0",
     "typescript": "7.0.2"
+  },
+  "overrides": {
+    "@effect/platform-node-shared": "4.0.0"
   },
   "engines": {
     "bun": ">=1.4.0",

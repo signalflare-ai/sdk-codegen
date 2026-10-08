@@ -16,6 +16,7 @@ interface CliOptions {
   help: boolean;
   dryRun: boolean;
   targets: TargetName[];
+  baseline?: string;
 }
 
 const USAGE = `Signalflare SDK Codegen
@@ -23,15 +24,20 @@ const USAGE = `Signalflare SDK Codegen
 Usage:
   signalflare-sdk validate [--config sdk.config.ts] [--json]
   signalflare-sdk generate [--config sdk.config.ts] [--target typescript] [--dry-run] [--json]
+  signalflare-sdk check [--config sdk.config.ts] [--target typescript] [--json]
+  signalflare-sdk compat --baseline <released-sdk-directory> [--config sdk.config.ts] [--json]
 
 Commands:
   validate    Validate the product manifest and canonical OpenAPI contract
   generate    Generate configured SDK targets through Oagen
+  check       Check generated output drift without modifying product files
+  compat      Compare wire and language SDK surfaces against a released baseline
 
 Options:
   --config <path>  Product SDK manifest (default: sdk.config.ts)
   --target <name>  Generate only one configured target; may be repeated
   --dry-run        Plan generation without writing files
+  --baseline <dir> Released SDK directory, or directory containing per-target SDKs
   --json           Emit a machine-readable report
   --help           Show this help
 `;
@@ -75,14 +81,22 @@ const parseArguments = Effect.fn("SdkCli.parseArguments")(function* (args: strin
         });
       }
       options.targets.push(value);
+    } else if (argument === "--baseline") {
+      const value = remaining.shift();
+      if (!value) return yield* new CliUsageError({ message: "--baseline requires a directory." });
+      options.baseline = value;
     } else {
       return yield* new CliUsageError({ message: `Unknown argument: ${argument}` });
     }
   }
 
-  if (options.command && options.command !== "validate" && options.command !== "generate") {
+  if (options.command && !["validate", "generate", "check", "compat"].includes(options.command)) {
     return yield* new CliUsageError({ message: `Unknown command: ${options.command}` });
   }
+  if (options.command === "compat" && !options.baseline && !options.help)
+    return yield* new CliUsageError({ message: "compat requires --baseline." });
+  if (options.baseline && options.command !== "compat")
+    return yield* new CliUsageError({ message: "--baseline is only supported by compat." });
   return options;
 });
 
@@ -153,6 +167,12 @@ const printGenerationResult = Effect.fn("SdkCli.printGenerationResult")(function
   result: GenerationReport,
   options: CliOptions,
 ) {
+  if (
+    result.targets.some(
+      (target) => (target.drift?.length ?? 0) > 0 || target.compatibility?.compatible === false,
+    )
+  )
+    yield* setExitCode(1);
   if (options.json) {
     yield* Console.log(JSON.stringify(result, null, 2));
     return;
@@ -160,6 +180,22 @@ const printGenerationResult = Effect.fn("SdkCli.printGenerationResult")(function
   yield* Effect.forEach(result.targets, (target) => {
     const action = target.dryRun ? "Would generate" : "Generated";
     return Effect.gen(function* () {
+      if (target.drift) {
+        yield* Console.log(
+          `${target.target}: ${target.drift.length === 0 ? "up to date" : `${target.drift.length} generated file(s) differ`}.`,
+        );
+        yield* Effect.forEach(target.drift, (item) => Console.log(`  ${item.kind}: ${item.path}`));
+        return;
+      }
+      if (target.compatibility) {
+        yield* Console.log(
+          `${target.target}: ${target.compatibility.compatible ? "compatible" : "breaking changes"}.`,
+        );
+        yield* Effect.forEach(target.compatibility.findings, (item) =>
+          Console.log(`  ${item.severity}: ${item.message}`),
+        );
+        return;
+      }
       yield* Console.log(
         `${action} ${target.files.length} ${target.target} files (${target.operations} operations) in ${target.output}`,
       );
@@ -183,6 +219,8 @@ const runCommand = Effect.fn("SdkCli.runCommand")(function* (options: CliOptions
     configPath: options.configPath,
     dryRun: options.dryRun,
     quiet: options.json,
+    check: options.command === "check",
+    ...(options.baseline === undefined ? {} : { baseline: options.baseline }),
     ...(options.targets.length === 0 ? {} : { targets: options.targets }),
   });
   yield* printGenerationResult(result, options);

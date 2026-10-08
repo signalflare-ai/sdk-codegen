@@ -1,3 +1,4 @@
+import { Result, Schema } from "effect";
 import type { Diagnostic, ValidationReport } from "../contract/diagnostics.js";
 import { createValidationReport } from "../contract/diagnostics.js";
 import { isRecord } from "../shared/object.js";
@@ -7,6 +8,7 @@ import {
   SDK_VISIBILITIES,
   TARGET_ID_FIELD,
   TARGET_NAMES,
+  SdkVersion,
   type SdkAudience,
   type SdkProfile,
   type SignalflareSdkConfig,
@@ -33,6 +35,13 @@ function addError(
 
 function hasNonEmptyString(record: Record<string, unknown>, key: string): boolean {
   return typeof record[key] === "string" && record[key].trim().length > 0;
+}
+
+function validateVersion(value: unknown, pointer: string, diagnostics: Diagnostic[]): void {
+  if (value === undefined) return;
+  if (Result.isFailure(Schema.decodeUnknownResult(SdkVersion)(value))) {
+    addError(diagnostics, "config.version.invalid", "Expected a semantic version.", pointer);
+  }
 }
 
 function validateStringArray(
@@ -73,6 +82,7 @@ export function validateSdkConfig(value: unknown): ValidationReport {
   if (!isRecord(product)) {
     addError(diagnostics, "config.product.required", "Missing product configuration.", "#/product");
   } else {
+    validateVersion(product.sdkVersion, "#/product/sdkVersion", diagnostics);
     if (!hasNonEmptyString(product, "id")) {
       addError(
         diagnostics,
@@ -198,6 +208,18 @@ export function validateSdkConfig(value: unknown): ValidationReport {
           pointer,
         );
         continue;
+      }
+      validateVersion(target.sdkVersion, `${pointer}/sdkVersion`, diagnostics);
+      if (targetName === "typescript") {
+        validateVersion(target.effectVersion, `${pointer}/effectVersion`, diagnostics);
+        if (typeof target.effectVersion === "string" && !target.effectVersion.startsWith("4.")) {
+          addError(
+            diagnostics,
+            "config.effect-version.unsupported",
+            "The Effect client targets Effect v4.",
+            `${pointer}/effectVersion`,
+          );
+        }
       }
       if (!hasNonEmptyString(target, "output")) {
         addError(

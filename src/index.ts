@@ -17,6 +17,7 @@ export {
   type SdkProfile,
   type SdkVisibility,
   SignalflareSdkConfig,
+  SdkVersion,
   type TargetConfig,
   type TargetName,
   type TypeScriptTargetConfig,
@@ -88,4 +89,18 @@ export {
   SignalflareSdkManifest,
   SignalflareSdkManifestJson,
 } from "./generator/manifest.js";
-export { COMPILER_VERSION, GENERATED_SDK_VERSION, OAGEN_EMITTERS_VERSION } from "./version.js";
+export {
+  COMPILER_VERSION,
+  EFFECT_VERSION,
+  GENERATED_SDK_VERSION,
+  OAGEN_EMITTERS_VERSION,
+} from "./version.js";
+export {
+  COMPATIBILITY_FILE,
+  createCompatibilitySnapshot,
+  loadCompatibilitySnapshot,
+  compareCompatibilitySnapshots,
+  type SdkCompatibilitySnapshot,
+  type SdkCompatibilityReport,
+} from "./generator/compatibility.js";
+export type { GenerationDrift } from "./generator/check.js";

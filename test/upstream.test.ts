@@ -1,12 +1,23 @@
 import { expect, test } from "bun:test";
 import { resolve } from "node:path";
+import platformBunManifest from "@effect/platform-bun/package.json" with { type: "json" };
 import { parseSpec } from "@workos/oagen";
+import effectManifest from "effect/package.json" with { type: "json" };
 import packageManifest from "../package.json" with { type: "json" };
 import { COMPILER_VERSION, OAGEN_EMITTERS_VERSION, validateOagenIr } from "../src/index.js";
 
 test("pins compiler provenance to package metadata and installed emitters", () => {
   expect(packageManifest.version).toBe(COMPILER_VERSION);
   expect(packageManifest.dependencies["@workos/oagen-emitters"]).toBe(OAGEN_EMITTERS_VERSION);
+});
+
+test("pins the compiler and Bun platform to the same stable Effect v4 release", () => {
+  const version = packageManifest.dependencies.effect;
+  expect(version).toMatch(/^4\.\d+\.\d+$/);
+  expect(packageManifest.dependencies["@effect/platform-bun"]).toBe(version);
+  expect(packageManifest.overrides["@effect/platform-node-shared"]).toBe(version);
+  expect(effectManifest.version).toBe(version);
+  expect(platformBunManifest.version).toBe(version);
 });
 
 test("Oagen parses the acceptance contract into its shared IR", async () => {

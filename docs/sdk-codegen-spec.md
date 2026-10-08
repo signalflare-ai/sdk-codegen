@@ -1,6 +1,13 @@
 # Signalflare SDK Codegen
 
 - **Status:** Proposed architecture and implementation plan
+
+The shared compiler now implements TypeScript Promise/native Effect, Python
+sync/async, Go and Rust runtimes, product SDK version wiring, and read-only
+drift/compatibility gates. See [release gates](release-gates.md) for the delivered
+workflow and its limits; this specification still includes longer-term product
+rollout and release-policy goals.
+
 - **Date:** August 6, 2026
 - **Repository:** `signalflare-ai/sdk-codegen`
 - **Package:** `@signalflare-ai/sdk-codegen`
@@ -1756,11 +1763,11 @@ Forge rollout should begin with a narrow generated resource set, preserving the 
 
 ### P2: Python, Go, Rust
 
-- [ ] Add Python sync/async target.
-- [ ] Add omission/nullability tests.
-- [ ] Add Go target.
-- [ ] Add Rust target.
-- [ ] Add cross-language error fixtures.
+- [x] Add Python sync/async target.
+- [x] Add omission/nullability tests.
+- [x] Add Go target.
+- [x] Add Rust target.
+- [x] Add cross-language error fixtures.
 - [ ] Add cross-language compatibility reports.
 
 ### P3: product pilots
@@ -1794,7 +1801,7 @@ These decisions should be resolved during the named phase, not before implementa
 
 1. **Effect implementation shape:** full Oagen emitter versus post-pass/facade over generated TypeScript endpoint descriptors. Resolve in Phase 2 by choosing the design with one model/serializer source.
 2. **TypeScript package topology:** one product package with subpath exports versus separate Promise/Effect packages. Default to one package unless peer dependency constraints require separation.
-3. **HTTP runtimes for Python, Go, and Rust:** select idiomatic libraries during target spikes and keep transport injection possible.
+3. **HTTP runtimes for Python, Go, and Rust:** resolved by the source audit in [`language-runtimes.md`](language-runtimes.md): adapt the live WorkOS HTTPX, `net/http`, and pluggable Reqwest/Rustls kernels, then add Signalflare `AuthPlan` support while preserving transport injection.
 4. **Canonical product composition:** shared compiler helper versus product-owned composition step. Default to product-owned composition; add a shared helper only after two products need the same logic.
 5. **Open enum representation:** determine target-specific defaults through fixtures and compatibility behavior.
 6. **Version alignment across languages:** product policy, not compiler policy.

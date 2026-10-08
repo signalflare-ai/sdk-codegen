@@ -35,13 +35,22 @@ The implemented vertical slice provides:
 - generated fetch transport, structured errors, and operation-aware auth;
 - strict TypeScript compile and wire/auth tests over the acceptance contract.
 
-The upstream Python, Go, and Rust emitters are orchestrated as spec-derived core
-generators, but still rely on product-owned transport/error runtimes. Effect and
-full standalone runtimes for those languages remain future slices.
+Signalflare wrappers now compose the upstream Python, Go, and Rust spec-derived
+cores with standalone HTTP, operation-aware auth, structured error, pagination,
+nullability, and package-bootstrap runtimes. Their native format, type, compile,
+wire, documentation, and package gates run through `bun run test:runtimes`.
+TypeScript also emits a native Effect v4 surface when configured, sharing the
+same models and serializers. Requests and credentials remain lazy Effects,
+with tagged errors, spans, per-call options, cancellation, timeouts, and a
+`Context.Service`/`Layer` integration. The Promise entrypoint stays independent
+of Effect. Normative runtime behavior
+and the remaining product-pilot sequence are tracked in
+[`language-runtimes.md`](language-runtimes.md).
 
 ## Compiler runtime
 
-Compiler boundary workflows use Effect v4. Configuration and contract loading,
+Compiler boundary workflows use stable Effect v4 (`effect` and
+`@effect/platform-bun` pinned to `4.0.0`). Configuration and contract loading,
 validation-command composition, generation, filesystem access, manifests, and
 the CLI expose named Effects with schema-backed tagged errors. The Bun CLI is
 the runtime boundary and provides the live compiler layer; compiler APIs do not
@@ -55,7 +64,8 @@ functions. Foreign Promise/throwing APIs from Redocly and Oagen are isolated in
 ## Effect-owned contract sources
 
 The `@signalflare-ai/sdk-codegen/effect-httpapi` subpath isolates Effect's
-unstable HttpApi OpenAPI API behind a pinned product-side adapter. Root
+HttpApi OpenAPI API (`effect/http-api`, still marked unstable upstream) behind
+a pinned product-side adapter. Root
 annotations inject the 3.1.2 baseline,
 product metadata, servers, and global AuthKit bearer policy. Operation annotations
 inject stable operation IDs and required `x-signalflare-*` metadata, including
@@ -110,6 +120,13 @@ identity.
 6. Apply diagnosed temporary adapters for known upstream parser gaps.
 7. Parse the selected contract into Oagen IR and preserve operationId names.
 8. Emit through Oagen, add the target runtime, and write ownership/provenance manifests.
+
+Before writing each target, the compiler validates local imports and extracts
+its public compatibility surfaces in a temporary directory. `check` regenerates
+and formats in that temporary directory only. `compat` compares a candidate
+against the released `.signalflare-compat.json`, combining upstream IR and
+language differ reports with conservative auth/route/constraint/export/alias
+checks. See [release gates](release-gates.md) for policy and limitations.
 
 Running policy validation before Oagen is intentional: Oagen accepts OpenAPI
 `3.*` and its IR does not retain every Signalflare vendor extension needed for

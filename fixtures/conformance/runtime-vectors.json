@@ -1,0 +1,252 @@
+{
+  "schemaVersion": 1,
+  "contract": "../contracts/runtime-conformance.openapi.json",
+  "requests": [
+    {
+      "id": "inherited-bearer-with-path-query-and-header",
+      "operationId": "getWidget",
+      "credentials": {
+        "token": "authkit-token"
+      },
+      "input": {
+        "path": {
+          "widget_id": "widget/123"
+        },
+        "query": {
+          "include_history": true
+        },
+        "headers": {
+          "X-Trace-Mode": "verbose"
+        }
+      },
+      "expected": {
+        "method": "GET",
+        "path": "/widgets/widget%2F123",
+        "query": {
+          "include_history": ["true"]
+        },
+        "headersContain": {
+          "authorization": "Bearer authkit-token",
+          "x-trace-mode": "verbose"
+        },
+        "headersAbsent": ["x-api-key", "cookie"],
+        "body": null
+      }
+    },
+    {
+      "id": "header-key-and-omitted-optionals",
+      "operationId": "createJob",
+      "credentials": {
+        "apiKey": "header-secret"
+      },
+      "input": {
+        "body": {
+          "requiredValue": "required",
+          "requiredNullable": null
+        }
+      },
+      "expected": {
+        "method": "POST",
+        "path": "/jobs",
+        "query": {},
+        "headersContain": {
+          "x-api-key": "header-secret",
+          "content-type": "application/json"
+        },
+        "headersAbsent": ["authorization", "cookie"],
+        "body": {
+          "requiredValue": "required",
+          "requiredNullable": null
+        }
+      }
+    },
+    {
+      "id": "header-key-and-explicit-optional-null",
+      "operationId": "createJob",
+      "credentials": {
+        "apiKey": "header-secret"
+      },
+      "input": {
+        "body": {
+          "requiredValue": "required",
+          "optionalValue": "present",
+          "requiredNullable": "present",
+          "optionalNullable": null,
+          "tags": ["one", "two"]
+        }
+      },
+      "expected": {
+        "method": "POST",
+        "path": "/jobs",
+        "query": {},
+        "headersContain": {
+          "x-api-key": "header-secret",
+          "content-type": "application/json"
+        },
+        "headersAbsent": ["authorization", "cookie"],
+        "body": {
+          "requiredValue": "required",
+          "optionalValue": "present",
+          "requiredNullable": "present",
+          "optionalNullable": null,
+          "tags": ["one", "two"]
+        }
+      }
+    },
+    {
+      "id": "query-api-key",
+      "operationId": "verifyQueryKey",
+      "credentials": {
+        "apiKey": "query-secret"
+      },
+      "input": {},
+      "expected": {
+        "method": "GET",
+        "path": "/auth/query-key",
+        "query": {
+          "api_key": ["query-secret"]
+        },
+        "headersContain": {},
+        "headersAbsent": ["authorization", "x-api-key", "cookie"],
+        "body": null
+      }
+    },
+    {
+      "id": "cookie-api-key",
+      "operationId": "verifyCookieKey",
+      "credentials": {
+        "apiKey": "cookie secret"
+      },
+      "input": {},
+      "expected": {
+        "method": "GET",
+        "path": "/auth/cookie-key",
+        "query": {},
+        "headersContain": {
+          "cookie": "session_key=cookie%20secret"
+        },
+        "headersAbsent": ["authorization", "x-api-key"],
+        "body": null
+      }
+    },
+    {
+      "id": "combined-bearer-and-header-key",
+      "operationId": "verifyCombinedCredentials",
+      "credentials": {
+        "token": "authkit-token",
+        "apiKey": "header-secret"
+      },
+      "input": {},
+      "expected": {
+        "method": "GET",
+        "path": "/auth/combined",
+        "query": {},
+        "headersContain": {
+          "authorization": "Bearer authkit-token",
+          "x-api-key": "header-secret"
+        },
+        "headersAbsent": ["cookie"],
+        "body": null
+      }
+    },
+    {
+      "id": "first-complete-alternative",
+      "operationId": "verifyAlternativeCredentials",
+      "credentials": {
+        "token": "authkit-token",
+        "apiKey": "unused-header-secret"
+      },
+      "input": {},
+      "expected": {
+        "method": "GET",
+        "path": "/auth/alternative",
+        "query": {},
+        "headersContain": {
+          "authorization": "Bearer authkit-token"
+        },
+        "headersAbsent": ["x-api-key", "cookie"],
+        "body": null
+      }
+    },
+    {
+      "id": "fallback-alternative",
+      "operationId": "verifyAlternativeCredentials",
+      "credentials": {
+        "apiKey": "fallback-header-secret"
+      },
+      "input": {},
+      "expected": {
+        "method": "GET",
+        "path": "/auth/alternative",
+        "query": {},
+        "headersContain": {
+          "x-api-key": "fallback-header-secret"
+        },
+        "headersAbsent": ["authorization", "cookie"],
+        "body": null
+      }
+    },
+    {
+      "id": "explicitly-anonymous-with-configured-credentials",
+      "operationId": "getHealth",
+      "credentials": {
+        "token": "must-not-leak",
+        "apiKey": "must-not-leak"
+      },
+      "input": {},
+      "expected": {
+        "method": "GET",
+        "path": "/health",
+        "query": {},
+        "headersContain": {},
+        "headersAbsent": ["authorization", "x-api-key", "cookie"],
+        "body": null
+      }
+    }
+  ],
+  "responses": [
+    {
+      "id": "structured-not-found",
+      "status": 404,
+      "headers": {
+        "x-request-id": "request_123"
+      },
+      "body": {
+        "code": "widget_not_found",
+        "message": "Widget not found",
+        "details": {
+          "widgetId": "widget_123"
+        }
+      },
+      "expectedError": {
+        "kind": "notFound",
+        "status": 404,
+        "code": "widget_not_found",
+        "message": "Widget not found",
+        "requestId": "request_123",
+        "details": {
+          "widgetId": "widget_123"
+        }
+      }
+    },
+    {
+      "id": "malformed-success-json",
+      "status": 200,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "rawBody": "{not-json",
+      "expectedError": {
+        "kind": "responseDecode",
+        "status": 200
+      }
+    },
+    {
+      "id": "empty-success",
+      "status": 204,
+      "headers": {},
+      "rawBody": "",
+      "expectedValue": null
+    }
+  ]
+}

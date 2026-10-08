@@ -36,6 +36,7 @@ export interface WorkOSOptions {
   fetch?: typeof globalThis.fetch;
   headers?: HeadersInit;
   timeoutMs?: number;
+  signal?: AbortSignal;
 }
 
 export type ClientOptions = WorkOSOptions;
@@ -142,6 +143,10 @@ export class ResponseDecodeError extends Error {
     this.name = 'ResponseDecodeError';
   }
 }
+
+export class RequestError extends Error {}
+export class TransportError extends Error {}
+export class RequestTimeoutError extends TransportError {}
 `;
 }
 
@@ -265,7 +270,10 @@ import {
   GenericServerException,
   NotFoundException,
   RateLimitExceededException,
+  RequestError,
+  RequestTimeoutError,
   ResponseDecodeError,
+  TransportError,
   UnprocessableEntityException,
 } from './exceptions';
 import type { GetOptions } from './interfaces/get-options.interface';
@@ -277,19 +285,7 @@ import type { WorkOSOptions } from './interfaces/workos-options.interface';
 const MAX_ERROR_BODY_LENGTH = 64 * 1024;
 const DEFAULT_BASE_URL = ${JSON.stringify(options.defaultBaseUrl)};
 
-function appendQuery(url: URL, query: Record<string, unknown> | undefined): void {
-  if (!query) return;
-  for (const [name, value] of Object.entries(query)) {
-    if (value === undefined) continue;
-    const values = Array.isArray(value) ? value : [value];
-    for (const entry of values) {
-      if (entry !== null && typeof entry === 'object') {
-        throw new TypeError(\`Structured query parameter "\${name}" requires an explicit serializer.\`);
-      }
-      url.searchParams.append(name, String(entry));
-    }
-  }
-}
+import { appendQuery } from './wire';
 
 function errorClass(status: number): typeof ApiError {
   if (status === 400) return BadRequestException;
@@ -323,9 +319,30 @@ export class WorkOSBase {
     entity: Entity | undefined,
     requestOptions: GetOptions | PostOptions = {},
   ): Promise<{ data: Result }> {
-    const url = new URL(path, this.baseURL.endsWith('/') ? this.baseURL : \`\${this.baseURL}/\`);
-    appendQuery(url, requestOptions.query);
+    const signals: AbortSignal[] = this.options.signal ? [this.options.signal] : [];
+    const timeoutMs = requestOptions.timeoutMs ?? this.options.timeoutMs;
+    if (timeoutMs !== undefined && (!Number.isFinite(timeoutMs) || timeoutMs < 0)) {
+      throw new RequestError('timeoutMs must be a finite non-negative number.');
+    }
+    const timeout = timeoutMs === undefined ? undefined : new AbortController();
+    if (timeout) signals.push(timeout.signal);
+    const signal = signals.length ? AbortSignal.any(signals) : undefined;
+    const timer = timeout && timeoutMs !== undefined
+      ? setTimeout(() => timeout.abort(new RequestTimeoutError('SDK request timed out.')), timeoutMs)
+      : undefined;
+    try {
+    signal?.throwIfAborted();
+    let url: URL;
+    let body: string | undefined;
+    try {
+      url = new URL(path, this.baseURL.endsWith('/') ? this.baseURL : \`\${this.baseURL}/\`);
+      appendQuery(url, requestOptions.query);
+      body = entity === undefined ? undefined : JSON.stringify(entity);
+    } catch (cause) {
+      throw new RequestError('Unable to serialize SDK request.', { cause });
+    }
     const resolvedAuth = await resolveAuth(authPlan, this.options, method, path);
+    signal?.throwIfAborted();
     for (const [name, value] of resolvedAuth.query) url.searchParams.append(name, value);
 
     const headers = new Headers(this.options.headers);
@@ -340,35 +357,32 @@ export class WorkOSBase {
     }
     if (entity !== undefined) headers.set('Content-Type', 'application/json');
 
-    const timeoutMs = requestOptions.timeoutMs ?? this.options.timeoutMs;
-    const controller = timeoutMs === undefined ? undefined : new AbortController();
-    const timer =
-      controller && timeoutMs !== undefined
-        ? setTimeout(() => controller.abort(), timeoutMs)
-        : undefined;
-
     let response: Response;
+    let rawBody: string;
     try {
       response = await this.fetchFn(url, {
         method,
         headers,
-        ...(entity === undefined ? {} : { body: JSON.stringify(entity) }),
-        ...(controller === undefined ? {} : { signal: controller.signal }),
+        ...(body === undefined ? {} : { body }),
+        ...(signal === undefined ? {} : { signal }),
       });
-    } finally {
-      if (timer !== undefined) clearTimeout(timer);
+      rawBody = await response.text();
+      signal?.throwIfAborted();
+    } catch (cause) {
+      if (timeout?.signal.aborted) throw new RequestTimeoutError('SDK request timed out.', { cause });
+      throw new TransportError('SDK transport failed.', { cause });
     }
 
-    const rawBody = await response.text();
     if (!response.ok) {
       let decoded: Record<string, unknown> = {};
       try {
-        decoded = rawBody ? (JSON.parse(rawBody) as Record<string, unknown>) : {};
+        const value: unknown = rawBody ? JSON.parse(rawBody) : {};
+        if (value !== null && typeof value === 'object' && !Array.isArray(value)) decoded = value as Record<string, unknown>;
       } catch {
         // Preserve the bounded raw response below.
       }
       const ErrorType = errorClass(response.status);
-      const requestId = response.headers.get('x-request-id');
+       const requestId = response.headers.get('x-request-id') ?? (typeof decoded.requestId === 'string' ? decoded.requestId : typeof decoded.request_id === 'string' ? decoded.request_id : undefined);
       throw new ErrorType(
         typeof decoded.message === 'string' ? decoded.message : \`API request failed with status \${response.status}.\`,
         {
@@ -388,6 +402,9 @@ export class WorkOSBase {
       throw new ResponseDecodeError(response.status, rawBody.slice(0, MAX_ERROR_BODY_LENGTH), {
         cause: error,
       });
+    }
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
     }
   }
 
@@ -536,6 +553,20 @@ export function generateTypeScriptRuntime(options: TypeScriptRuntimeOptions): Ru
     { path: "src/common/auth.ts", content: renderAuthTypes() },
     { path: "src/common/auth-plan.ts", content: renderAuthPlan(options.authPlan) },
     { path: "src/common/workos-base.ts", content: renderClientBase(options) },
+    {
+      path: "src/common/wire.ts",
+      content: `export function appendQuery(url: URL, query: Record<string, unknown> | undefined): void {
+  if (!query) return;
+  for (const [name, value] of Object.entries(query)) {
+    if (value === undefined) continue;
+    for (const entry of Array.isArray(value) ? value : [value]) {
+      if (entry !== null && typeof entry === 'object') throw new TypeError('Structured query parameters require an explicit serializer.');
+      url.searchParams.append(name, String(entry));
+    }
+  }
+}
+`,
+    },
     { path: "src/common/utils/pagination.ts", content: renderPagination() },
     {
       path: "src/common/utils/fetch-and-deserialize.ts",
