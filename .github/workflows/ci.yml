@@ -26,6 +26,10 @@ jobs:
         with:
           components: rustfmt, clippy
       - run: bun install --frozen-lockfile
+      - name: Install Python formatter
+        run: |
+          uv tool install 'ruff==0.16.6'
+          echo "$(uv tool dir --bin)" >> "$GITHUB_PATH"
       - run: bun run check
       - run: bun run build
       - run: bun run test:runtimes

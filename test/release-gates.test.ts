@@ -239,11 +239,13 @@ describe("release safety gates", () => {
         stdout: "pipe",
         stderr: "pipe",
       });
-      return {
-        exit: await child.exited,
-        stdout: await new Response(child.stdout).text(),
-        stderr: await new Response(child.stderr).text(),
-      };
+      // Drain both pipes while the CLI runs so verbose output cannot block exit.
+      const [exit, stdout, stderr] = await Promise.all([
+        child.exited,
+        new Response(child.stdout).text(),
+        new Response(child.stderr).text(),
+      ]);
+      return { exit, stdout, stderr };
     };
     const clean = await spawn(["check", "--config", configPath, "--json"]);
     expect(clean.exit).toBe(0);
@@ -251,5 +253,6 @@ describe("release safety gates", () => {
     await writeFile(join(output, "src/operation-manifest.ts"), "drift\n");
     expect((await spawn(["check", "--config", configPath, "--json"])).exit).toBe(1);
     expect((await spawn(["compat", "--config", configPath])).exit).toBe(2);
-  });
+    // Includes generation plus three cold CLI processes on shared CI runners.
+  }, 20000);
 });
