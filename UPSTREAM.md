@@ -134,6 +134,50 @@ For every `@workos/oagen` or emitter upgrade:
     resource methods. Remove the staging-only receiver normalization once
     upstream associates these receivers correctly.
 
+17. Check Node standalone emission against `typescript-standalone.openapi.json`.
+    Remove `standaloneContext` only when upstream offers a greenfield mode that
+    does not treat previous generated files as a live WorkOS SDK baseline.
+    First generation must emit shared enums; repeated generation must preserve
+    serializer imports and remain byte-identical, while obsolete generated files
+    are pruned and product-owned package manifests/helpers remain unchanged.
+    Also remove the `spec.enums`/emission-argument union only when the engine
+    includes error-only enums referenced by the generated barrels.
+
+## Standalone TypeScript context regression
+
+Atlas adoption exposed two assumptions in the Node emitter: common enums are
+hand-owned in a live WorkOS SDK, and existing output participates in alias/import
+resolution. This produced missing common enum modules on a fresh generation and
+missing nested deserializer imports on subsequent generations. The parser can
+also omit error-only enums from the success-reachable emission argument while
+client barrels still export them from the full spec.
+
+The Signalflare wrapper now supplies one cached standalone context to all Node
+emitter hooks, omitting only output/target adoption, baseline and prior-manifest
+metadata. Runtime options, resolved operations, auth plans and the original
+writer context are preserved. Error-only enums are included in the emission
+input so barrels and files agree. Compiler-owned TypeScript modules are explicitly
+overwritten rather than AST-merged, preventing removed methods/imports from
+surviving after their models are pruned. Package bootstraps and unrelated helper
+files remain product-owned. No upstream files or generated clients are patched.
+
+Representative generated output fixed by this change:
+
+```diff
++# src/common/interfaces/failure-code.interface.ts now exists for the barrel export
++export const FailureCode = { InvalidQuery: 'INVALID_QUERY', Unauthorized: 'UNAUTHORIZED' } as const;
+
+ // src/catalog/serializers/lineage-response.serializer.ts, after regeneration
++import { deserializeLineageTable } from './lineage-table.serializer';
+```
+
+`test/typescript-standalone.test.ts` proves both failures without the fix, then
+strict-compiles Promise/Effect clients and exercises authenticated nested-model
+responses after repeated generation. It compares all managed bytes, checks
+read-only drift, preserves hand-owned files, and verifies removed models are
+pruned. This upstreams the temporary dependency patch from Atlas PR #42; Atlas
+can remove that patch once it pins a merged compiler revision containing this fix.
+
 ## Vendoring policy
 
 Vendoring is allowed only after an issue records that emitter options, wrappers,

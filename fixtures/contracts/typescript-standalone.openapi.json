@@ -1,0 +1,113 @@
+{
+  "openapi": "3.1.2",
+  "info": {
+    "title": "Standalone API",
+    "version": "1.0.0",
+    "description": "Regression contract for error-only shared enums and structurally identical nested models across repeated standalone generation."
+  },
+  "servers": [{ "url": "https://standalone.signalflare.test" }],
+  "x-signalflare-product": {
+    "id": "standalone",
+    "displayName": "Standalone",
+    "contractVersion": 1
+  },
+  "security": [{ "Bearer": [] }],
+  "paths": {
+    "/v1/catalog/commits": {
+      "get": {
+        "operationId": "catalog.commits",
+        "tags": ["Catalog"],
+        "x-signalflare-api-id": "standalone",
+        "x-signalflare-sdk": {
+          "audiences": ["access"],
+          "visibility": "public",
+          "stability": "beta",
+          "service": "catalog"
+        },
+        "responses": {
+          "200": {
+            "description": "Commits",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/CommitResponse" } }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Failure" }
+        }
+      }
+    },
+    "/v1/catalog/lineage": {
+      "get": {
+        "operationId": "catalog.lineage",
+        "tags": ["Catalog"],
+        "x-signalflare-api-id": "standalone",
+        "x-signalflare-sdk": {
+          "audiences": ["access"],
+          "visibility": "public",
+          "stability": "beta",
+          "service": "catalog"
+        },
+        "responses": {
+          "200": {
+            "description": "Lineage",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/LineageResponse" } }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Failure" }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": { "Bearer": { "type": "http", "scheme": "bearer" } },
+    "responses": {
+      "Failure": {
+        "description": "Structured failure",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Failure" } } }
+      }
+    },
+    "schemas": {
+      "Failure": {
+        "type": "object",
+        "required": ["code", "message"],
+        "properties": {
+          "code": { "type": "string", "enum": ["INVALID_QUERY", "UNAUTHORIZED"] },
+          "message": { "type": "string" }
+        }
+      },
+      "CommitResponse": {
+        "type": "object",
+        "required": ["commits"],
+        "properties": {
+          "commits": { "type": "array", "items": { "$ref": "#/components/schemas/RecordedCommit" } }
+        }
+      },
+      "RecordedCommit": {
+        "type": "object",
+        "required": ["commitId", "table"],
+        "properties": {
+          "commitId": { "type": "string" },
+          "table": { "$ref": "#/components/schemas/CommitTable" }
+        }
+      },
+      "CommitTable": {
+        "type": "object",
+        "required": ["schema", "table"],
+        "properties": { "schema": { "type": "string" }, "table": { "type": "string" } }
+      },
+      "LineageResponse": {
+        "type": "object",
+        "required": ["table", "lineage"],
+        "properties": {
+          "table": { "$ref": "#/components/schemas/LineageTable" },
+          "lineage": { "type": "array", "items": { "type": "string" } }
+        }
+      },
+      "LineageTable": {
+        "type": "object",
+        "required": ["schema", "table"],
+        "properties": { "schema": { "type": "string" }, "table": { "type": "string" } }
+      }
+    }
+  }
+}

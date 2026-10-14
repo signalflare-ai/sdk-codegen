@@ -42,9 +42,13 @@ function optionsFor(context: EmitterContext): SignalflareTypeScriptEmitterOption
   return options as SignalflareTypeScriptEmitterOptions;
 }
 
-function makeExactOptionalCompatible(files: GeneratedFile[]): GeneratedFile[] {
+function prepareStandaloneFiles(files: GeneratedFile[]): GeneratedFile[] {
   for (const file of files) {
     if (!file.path.endsWith(".ts")) continue;
+    // These are complete compiler-owned modules, not patches for a live SDK.
+    // AST-merging prior output retains removed methods/imports after pruning.
+    file.overwriteExisting = true;
+    file.skipIfExists = false;
     file.content = file.content.replace(
       /^(\s*(?:readonly\s+)?(?:[A-Za-z_$][\w$]*|"[^"\n]+"|'[^'\n]+')\?): ([^;\n]+);$/gm,
       (line, property: string, type: string) =>
@@ -117,7 +121,7 @@ function exposeSignalflareClient(files: GeneratedFile[], context: EmitterContext
       2,
     )}\n`,
   });
-  return makeExactOptionalCompatible(files);
+  return prepareStandaloneFiles(files);
 }
 
 function runtimeFiles(context: EmitterContext): GeneratedFile[] {
@@ -146,6 +150,28 @@ function buildOperationsMap(context: EmitterContext): OperationsMap {
   return operations;
 }
 
+const standaloneContexts = new WeakMap<EmitterContext, EmitterContext>();
+
+/**
+ * Keep upstream's live-WorkOS-SDK adoption out of standalone emission. Existing
+ * generated files are outputs, not a baseline for naming or import ownership.
+ * Cache one copy per run so upstream's model/enum/serializer hooks share state;
+ * leave the original context intact for the writer, runtime and manifests.
+ * See UPSTREAM.md#temporary-workaround-removal-checklist.
+ */
+function standaloneContext(context: EmitterContext): EmitterContext {
+  const cached = standaloneContexts.get(context);
+  if (cached) return cached;
+  const standalone = { ...context };
+  delete standalone.outputDir;
+  delete standalone.targetDir;
+  delete standalone.apiSurface;
+  delete standalone.overlayLookup;
+  delete standalone.priorTargetManifestPaths;
+  standaloneContexts.set(context, standalone);
+  return standalone;
+}
+
 /**
  * Signalflare's greenfield TypeScript target. It delegates models, serializers,
  * resources, and compatibility behavior to the reviewed WorkOS Node emitter,
@@ -155,32 +181,48 @@ function buildOperationsMap(context: EmitterContext): OperationsMap {
 export const signalflareTypeScriptEmitter: Emitter = {
   language: "node",
   generateModels: (models, context) =>
-    makeExactOptionalCompatible(
-      preserveTypeScriptWireNames(nodeEmitter.generateModels(models, context), context),
+    prepareStandaloneFiles(
+      preserveTypeScriptWireNames(
+        nodeEmitter.generateModels(models, standaloneContext(context)),
+        context,
+      ),
     ),
-  generateEnums: (enums, context) =>
-    makeExactOptionalCompatible(nodeEmitter.generateEnums(enums, context)),
+  generateEnums: (enums, context) => {
+    // The upstream barrel includes error-only enums from spec.enums even when
+    // the engine omits them from the success-reachable emission argument.
+    const exportedEnums = new Map(
+      [...context.spec.enums, ...enums].map((value) => [value.name, value]),
+    );
+    return prepareStandaloneFiles(
+      nodeEmitter.generateEnums([...exportedEnums.values()], standaloneContext(context)),
+    );
+  },
   generateResources: (services, context) => {
     const files = preserveTypeScriptWireNames(
-      nodeEmitter.generateResources(services, context),
+      nodeEmitter.generateResources(services, standaloneContext(context)),
       context,
     );
-    return makeExactOptionalCompatible([
+    return prepareStandaloneFiles([
       ...files,
       ...(optionsFor(context).effect ? generateEffectResources(files) : []),
     ]);
   },
   generateClient: (spec: ApiSpec, context) =>
-    exposeSignalflareClient(nodeEmitter.generateClient(spec, context), context),
+    exposeSignalflareClient(nodeEmitter.generateClient(spec, standaloneContext(context)), context),
   generateErrors: (context) =>
-    makeExactOptionalCompatible([...nodeEmitter.generateErrors(context), ...runtimeFiles(context)]),
+    prepareStandaloneFiles([
+      ...nodeEmitter.generateErrors(standaloneContext(context)),
+      ...runtimeFiles(context),
+    ]),
   generateTypeSignatures: (spec, context) =>
-    makeExactOptionalCompatible(nodeEmitter.generateTypeSignatures?.(spec, context) ?? []),
+    prepareStandaloneFiles(
+      nodeEmitter.generateTypeSignatures?.(spec, standaloneContext(context)) ?? [],
+    ),
   generateTests: (spec, context) => {
     const ownedRuntimePaths = new Set(runtimeFiles(context).map((file) => file.path));
-    return makeExactOptionalCompatible(
+    return prepareStandaloneFiles(
       nodeEmitter
-        .generateTests(spec, context)
+        .generateTests(spec, standaloneContext(context))
         .filter(
           (file) =>
             !ownedRuntimePaths.has(file.path) &&
