@@ -121,10 +121,15 @@ class RequestOptions(TypedDict, total=False):
     """Per-request transport overrides."""
 
     extra_headers: Dict[str, str]
+    """Additional headers for this call; resolved authentication takes precedence."""
     timeout: float
+    """HTTP timeout in seconds per attempt, overriding request_timeout."""
     idempotency_key: str
+    """Stable request identifier; also enables retries for non-read HTTP methods."""
     max_retries: int
+    """Additional attempts for retry-eligible requests; overrides the client default."""
     base_url: str
+    """Trusted API endpoint override. The request's credentials are sent here."""
 
 
 class Deserializable(Protocol):
@@ -187,9 +192,13 @@ class CredentialContext:
     """Context supplied to a per-request credential provider."""
 
     method: str
+    """Uppercase HTTP method of the request."""
     path: str
+    """Operation path template, or actual path when no operation matches."""
     operation_id: str | None
+    """OpenAPI operation identifier, if the request matches an operation."""
     scheme: str
+    """OpenAPI security-scheme name whose credential is being requested."""
 
 
 CredentialProvider = Callable[[CredentialContext], str | None | Awaitable[str | None]]
@@ -433,6 +442,61 @@ class AsyncPage(Generic[T]):
 `;
 }
 
+function renderClientInitializer(async: boolean, options: NativeRuntimeOptions): string {
+  const httpClient = async ? "AsyncClient" : "Client";
+  const schemes = options.authPlan.schemes.map((scheme) => scheme.id).join(", ") || "none";
+  return `    def __init__(
+        self,
+        *,
+        token: Credential | None = None,
+        api_key: Credential | None = None,
+        credentials: Mapping[str, Credential | None] | None = None,
+        client_id: str | None = None,
+        base_url: str | None = None,
+        request_timeout: float = DEFAULT_TIMEOUT,
+        max_retries: int = DEFAULT_MAX_RETRIES,
+        headers: Mapping[str, str] | None = None,
+        http_client: httpx.${httpClient} | None = None,
+    ) -> None:
+        """Configure credentials and HTTP transport; no request is made here.
+
+        Args:
+            token: Credential or provider for HTTP bearer security schemes.
+                This low-level client does not perform login, token exchange,
+                caching, or refresh. A provider is called for each request.
+            api_key: Credential or provider for OpenAPI apiKey schemes (header,
+                query, or cookie). It is NOT a fallback for bearer schemes.
+            credentials: Credentials keyed by OpenAPI security-scheme name;
+                named entries take precedence over token/api_key. Schemes in
+                this SDK: ${schemes}.
+            client_id: Optional identifier for operations that require it.
+                This does not select an organization or perform OAuth login.
+            base_url: API endpoint override. Defaults to ${options.defaultBaseUrl}.
+                Per-request base_url overrides send credentials to that endpoint;
+                use only trusted endpoints.
+            request_timeout: HTTP timeout in seconds per attempt; default 60.
+                This is not the server-side query execution time budget.
+            max_retries: Additional attempts; default 0. Retries apply only to
+                GET/HEAD/OPTIONS or requests with an idempotency key, for retryable
+                transport errors or HTTP 429/500/502/503/504 responses.
+            headers: Additional default HTTP headers. Resolved authentication
+                headers take precedence.
+            http_client: Optional caller-owned httpx.${httpClient}. Otherwise an
+                HTTP client is created and closed by ${async ? "async with" : "with"} or ${async ? "await close()" : "close()"}.
+                Injected HTTP clients are never closed by this SDK.
+
+        Credential providers receive CredentialContext and return a credential
+        string or None. ${async ? "Async providers are supported." : "Async providers require the async client."}
+        """
+        super().__init__(
+            token=token, api_key=api_key, credentials=credentials,
+            client_id=client_id, base_url=base_url, request_timeout=request_timeout,
+            max_retries=max_retries, headers=headers,
+        )
+        self._client = http_client or httpx.${httpClient}(follow_redirects=True)
+        self._owns_client = http_client is None`;
+}
+
 function renderBaseClient(options: NativeRuntimeOptions): string {
   const sdkHeader = `${options.productId}/${options.sdkVersion} (python; sdk-codegen/${options.compilerVersion})`;
   return `from __future__ import annotations
@@ -656,10 +720,7 @@ class _BaseClient:
 class ${options.clientClassName}(_BaseClient):
     """Synchronous ${options.productDisplayName} API client."""
 
-    def __init__(self, *, http_client: httpx.Client | None = None, **kwargs: Any) -> None:
-        super().__init__(**kwargs)
-        self._client = http_client or httpx.Client(follow_redirects=True)
-        self._owns_client = http_client is None
+${renderClientInitializer(false, options)}
 
     def close(self) -> None:
         if self._owns_client:
@@ -765,10 +826,7 @@ class ${options.clientClassName}(_BaseClient):
 class Async${options.clientClassName}(_BaseClient):
     """Asynchronous ${options.productDisplayName} API client."""
 
-    def __init__(self, *, http_client: httpx.AsyncClient | None = None, **kwargs: Any) -> None:
-        super().__init__(**kwargs)
-        self._client = http_client or httpx.AsyncClient(follow_redirects=True)
-        self._owns_client = http_client is None
+${renderClientInitializer(true, options)}
 
     async def close(self) -> None:
         if self._owns_client:
