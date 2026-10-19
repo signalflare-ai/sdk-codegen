@@ -438,10 +438,16 @@ function renderBaseClient(options: NativeRuntimeOptions): string {
   return `from __future__ import annotations
 
 import asyncio
+import sys
 import time
 from enum import Enum
 from typing import Any, Mapping, Sequence, Type, cast, overload
 from urllib.parse import quote, urlencode
+
+if sys.version_info >= (3, 11):
+    from typing import Self
+else:
+    from typing_extensions import Self
 
 import httpx
 
@@ -659,7 +665,7 @@ class ${options.clientClassName}(_BaseClient):
         if self._owns_client:
             self._client.close()
 
-    def __enter__(self) -> "${options.clientClassName}":
+    def __enter__(self) -> Self:
         return self
 
     def __exit__(self, exc_type: Any, exc_value: Any, traceback: Any) -> None:
@@ -768,7 +774,7 @@ class Async${options.clientClassName}(_BaseClient):
         if self._owns_client:
             await self._client.aclose()
 
-    async def __aenter__(self) -> "Async${options.clientClassName}":
+    async def __aenter__(self) -> Self:
         return self
 
     async def __aexit__(self, exc_type: Any, exc_value: Any, traceback: Any) -> None:
