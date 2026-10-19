@@ -79,6 +79,10 @@ function transformPythonFiles(files: GeneratedFile[], context: EmitterContext): 
       content = content.replace(blockPattern, "");
     }
     content = content
+      .replaceAll(
+        "AuthenticationError: If the API key is invalid (401).",
+        "AuthenticationError: If authentication is missing, invalid, or expired (401).",
+      )
       .replaceAll("AsyncWorkOSClient", `Async${options.clientClassName}`)
       .replaceAll("WorkOSClient", options.clientClassName)
       .replaceAll("WorkOSError", "SignalflareError")
